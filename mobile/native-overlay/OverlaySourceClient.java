@@ -1,6 +1,7 @@
 package uk.wort.atlas.overlay;
 
 import android.graphics.Bitmap;
+import android.content.Context;
 import android.graphics.BitmapFactory;
 import android.text.Html;
 import android.webkit.CookieManager;
@@ -149,12 +150,22 @@ final class OverlaySourceClient {
         return url;
     }
 
+    // WebView login cookies may be bound to a User-Agent. Reuse the login page
+    // user agent when fetching the same site through HttpURLConnection.
+    private static String sourceUserAgent(Context ctx, String sourceId) {
+        String value = ctx.getSharedPreferences("overlay_source_sessions", Context.MODE_PRIVATE)
+                .getString("ua_" + sourceId, "");
+        return value == null || value.isEmpty()
+                ? "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                : value;
+    }
+
     private static final class Page {
         String html, url;
         Page(String body, String address) { html = body; url = address; }
     }
 
-    private static Page loadPage(String sourceId, String address) throws Exception {
+    private static Page loadPage(Context ctx, String sourceId, String address) throws Exception {
         URL target = validated(sourceId, address);
         for (int redirect = 0; redirect < 4; redirect++) {
             HttpURLConnection conn = (HttpURLConnection) target.openConnection();
@@ -162,7 +173,7 @@ final class OverlaySourceClient {
                 conn.setInstanceFollowRedirects(false);
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(14000);
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36");
+                conn.setRequestProperty("User-Agent", sourceUserAgent(ctx, sourceId));
                 conn.setRequestProperty("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5");
                 conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.7");
                 attachSiteCookies(conn, target);
@@ -288,8 +299,8 @@ final class OverlaySourceClient {
         return magnets;
     }
 
-    static JSONObject preview(String sourceId, String sourceName, String rawUrl) throws Exception {
-        Page page = loadPage(sourceId, rawUrl);
+    static JSONObject preview(Context ctx, String sourceId, String sourceName, String rawUrl) throws Exception {
+        Page page = loadPage(ctx, sourceId, rawUrl);
         String html = page.html;
         String finalUrl = page.url;
         JSONArray items = new JSONArray();
@@ -370,7 +381,7 @@ final class OverlaySourceClient {
     }
 
     /** Covers from a supported source or its subdomains only. Never fetch arbitrary URLs. */
-    static Bitmap cover(String sourceId, String address) {
+    static Bitmap cover(Context ctx, String sourceId, String address) {
         HttpURLConnection conn = null;
         try {
             URL target = validated(sourceId, address);
@@ -378,6 +389,7 @@ final class OverlaySourceClient {
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(9000);
             conn.setInstanceFollowRedirects(false);
+            conn.setRequestProperty("User-Agent", sourceUserAgent(ctx, sourceId));
             attachSiteCookies(conn, target);
             if (conn.getResponseCode() != 200) return null;
             String type = conn.getContentType();
