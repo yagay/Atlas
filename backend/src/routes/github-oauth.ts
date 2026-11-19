@@ -70,13 +70,26 @@ async function fetchGitHubPrimaryEmail(accessToken: string): Promise<string | nu
 }
 
 // ── 发起授权 ─────────────────────────────────────────────
+// 新独立客户端使用专用 scheme；旧 Atlas 仍使用 atlas://auth/callback。
+// 仅接受固定白名单客户端标记，不读取客户端传入的任意 redirect_uri。
+const JAV_SEARCH_OAUTH_CALLBACK = 'javsearch://auth/callback';
+const JAV_SEARCH_STATE_SUFFIX = '.javsearch';
+
+githubOAuthRoutes.get('/github/capabilities', (c) =>
+  c.json({ success: true, data: { javsearch: true, callbackScheme: 'javsearch' } })
+);
+
 githubOAuthRoutes.get('/github', async (c) => {
   const clientId = c.env.GITHUB_CLIENT_ID;
   if (!clientId) {
     return c.json(error('CONFIG_ERROR', 'GitHub OAuth 未配置'), 500);
   }
 
-  const state = markAppOAuthState(generateState(), c.req.query('client') === 'app');
+  const client = c.req.query('client');
+  const baseState = generateState();
+  const state = client === 'javsearch'
+    ? `${baseState}${JAV_SEARCH_STATE_SUFFIX}`
+    : markAppOAuthState(baseState, client === 'app');
   const backendUrl = (c.env.BACKEND_URL || 'https://atlas.wort.uk').replace(/\/$/, '');
   const redirectUri = `${backendUrl}/api/auth/github/callback`;
 
@@ -110,8 +123,13 @@ githubOAuthRoutes.get('/github/callback', async (c) => {
   const state = c.req.query('state');
   const errorParam = c.req.query('error');
   // App 发起的授权回到自定义 scheme，网页端回到前端回调页
-  const callbackBase = isAppOAuthState(state) ? APP_OAUTH_CALLBACK : `${frontendBase}/auth/callback`;
-  const loginErrorBase = isAppOAuthState(state) ? APP_OAUTH_CALLBACK : `${frontendBase}/login`;
+  const standalone = Boolean(state?.endsWith(JAV_SEARCH_STATE_SUFFIX));
+  const callbackBase = standalone
+    ? JAV_SEARCH_OAUTH_CALLBACK
+    : isAppOAuthState(state) ? APP_OAUTH_CALLBACK : `${frontendBase}/auth/callback`;
+  const loginErrorBase = standalone
+    ? JAV_SEARCH_OAUTH_CALLBACK
+    : isAppOAuthState(state) ? APP_OAUTH_CALLBACK : `${frontendBase}/login`;
 
   if (!clientId || !clientSecret) {
     return c.redirect(`${loginErrorBase}?error=github_not_configured`, 302);
