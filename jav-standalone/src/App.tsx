@@ -2,9 +2,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Search, Magnet, Copy, ExternalLink, RefreshCw,
   LogOut, Settings2, X, Film, ImageOff, CalendarDays, Clock3,
-  Check, Eye, EyeOff, ChevronLeft, ChevronRight, Link2, ShieldCheck
+  Check, Eye, EyeOff, ChevronLeft, ChevronRight, Link2, ShieldCheck, Github
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
+import { App as NativeApp } from '@capacitor/app';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 type SearchMode = 'code' | 'actress' | 'title';
@@ -58,6 +59,8 @@ const DEFAULT_API = 'https://atlas.wort.uk/api';
 const API_KEY = 'jav-standalone:api:v1';
 const TOKEN_KEY = 'jav-standalone:auth:v1';
 const HISTORY_KEY = 'jav-standalone:recent:v1';
+const OAUTH_PENDING_KEY = 'jav-standalone:oauth-pending:v1';
+const OAUTH_CALLBACKS = new Set(['javsearch:', 'atlas:']);
 
 function stored(key: string, fallback = ''): string {
   try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
@@ -166,6 +169,7 @@ export function App() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
+  const [oauthBusy, setOauthBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<SearchMode>('code');
   const [query, setQuery] = useState('');
@@ -180,6 +184,114 @@ export function App() {
   const [recent, setRecent] = useState<string[]>(() => {
     try { return JSON.parse(stored(HISTORY_KEY, '[]')) as string[]; } catch { return []; }
   });
+
+  // GitHub 在系统浏览器完成授权；App 通过专用 deep link 收到一次性 code，
+  // 再通过原生 HTTP 向已有 Atlas API 换取 token。只处理本站主动发起的授权。
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let removeAppListener: (() => void) | undefined;
+    let removeBrowserListener: (() => void) | undefined;
+    let handledLink: string | null = null;
+
+    const handleLink = (raw: string) => {
+      let url: URL;
+      try { url = new URL(raw); } catch { return; }
+      if (!OAUTH_CALLBACKS.has(url.protocol) || url.hostname !== 'auth' || url.pathname !== '/callback') return;
+      if (handledLink === raw) return;
+      const pendingString = stored(OAUTH_PENDING_KEY);
+      if (!pendingString) return;
+      let pending: { api: string; at: number };
+      try { pending = JSON.parse(pendingString) as { api: string; at: number }; }
+      catch { return; }
+      if (pending.api !== api || !Number.isFinite(pending.at) || Date.now() - pending.at > 10 * 60 * 1000) {
+        try { localStorage.removeItem(OAUTH_PENDING_KEY); } catch { /* ignore */ }
+        return;
+      }
+      handledLink = raw;
+      try { localStorage.removeItem(OAUTH_PENDING_KEY); } catch { /* ignore */ }
+      void Browser.close().catch(() => undefined);
+      const oauthError = url.searchParams.get('error');
+      const code = url.searchParams.get('code');
+      if (oauthError || !code) {
+        setError(oauthError ? 'GitHub 授权失败：' + oauthError : '未收到 GitHub 登录凭证');
+        setOauthBusy(false);
+        return;
+      }
+      setError('');
+      setOauthBusy(true);
+      void (async () => {
+        try {
+          const result = await send<{token: string; user: {username?: string}}>(
+            api, '/auth/oauth/exchange', null, { code }
+          );
+          if (!result.token) throw new Error('兑换登录凭证失败：服务器没有返回令牌');
+          if (disposed) return;
+          setToken(result.token);
+          try { localStorage.setItem(TOKEN_KEY, result.token); } catch { /* ignore */ }
+          setPassword('');
+          setNotice('GitHub 登录成功，可以开始搜索');
+        } catch (err) {
+          if (!disposed) setError(err instanceof Error ? err.message : 'GitHub 登录失败');
+        } finally {
+          if (!disposed) setOauthBusy(false);
+        }
+      })();
+    };
+
+    void (async () => {
+      const listener = await NativeApp.addListener('appUrlOpen', ({url}) => {
+        if (!disposed) handleLink(url);
+      });
+      if (disposed) { void listener.remove(); return; }
+      removeAppListener = () => void listener.remove();
+      const launchUrl = await NativeApp.getLaunchUrl().catch(() => null);
+      if (!disposed && launchUrl?.url) handleLink(launchUrl.url);
+    })().catch(err => {
+      if (!disposed) setError(err instanceof Error ? err.message : '无法监听登录回调');
+    });
+    void Browser.addListener('browserFinished', () => {
+      if (!disposed) setOauthBusy(false);
+    }).then(listener => {
+      if (disposed) { void listener.remove(); return; }
+      removeBrowserListener = () => void listener.remove();
+    }).catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      removeAppListener?.();
+      removeBrowserListener?.();
+    };
+  }, [api]);
+
+  async function loginWithGitHub() {
+    if (loginBusy || oauthBusy) return;
+    if (!Capacitor.isNativePlatform()) {
+      setError('GitHub 原生回跳登录仅支持安装后的 Android 客户端');
+      return;
+    }
+    setError('');
+    setOauthBusy(true);
+    try {
+      // 旧生产后端只支持 atlas://，新后端支持 javsearch://；
+      // 能力检测失败时兼容旧端，不会因为尚未部署后端补丁而禁用登录。
+      let client = 'app';
+      try {
+        const supported = await send<{javsearch?: boolean}>(api, '/auth/github/capabilities', null);
+        if (supported.javsearch) client = 'javsearch';
+      } catch { /* 旧 Atlas 服务器：回退 atlas:// 回调 */ }
+      try { localStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({ api, at: Date.now() })); }
+      catch { throw new Error('无法保存登录状态，请检查应用存储权限'); }
+      await Browser.open({ url: api + '/auth/github?client=' + client });
+      if (client === 'app') {
+        setNotice('使用现有 Atlas 登录服务。若出现“选择应用”，请选择 JAV Search 返回。');
+      }
+    } catch (err) {
+      setOauthBusy(false);
+      try { localStorage.removeItem(OAUTH_PENDING_KEY); } catch { /* ignore */ }
+      setError(err instanceof Error ? err.message : '无法打开 GitHub 授权');
+    }
+  }
 
   const doSearch = useCallback(async (term: string, selection: SearchMode) => {
     const value = term.trim();
@@ -293,7 +405,11 @@ export function App() {
               <input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="输入密码" required/>
               <button type="button" aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button>
             </div>
-            <button type="submit" className="primary full" disabled={loginBusy}>{loginBusy ? '登录中…' : '登录并开始搜索'}</button>
+            <button type="submit" className="primary full" disabled={loginBusy || oauthBusy}>{loginBusy ? '登录中…' : '登录并开始搜索'}</button>
+            <div className="login-divider"><span>或使用</span></div>
+            <button type="button" className="github-login full" disabled={loginBusy || oauthBusy} onClick={() => void loginWithGitHub()}>
+              <Github size={19}/> {oauthBusy ? '正在等待 GitHub 授权…' : '使用 GitHub 登录'}
+            </button>
             <div className="service-info"><ShieldCheck size={15}/> API: {api}</div>
           </form>
         </section>
