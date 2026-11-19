@@ -5,6 +5,7 @@ import {
   Check, Eye, EyeOff, ChevronLeft, ChevronRight, Link2, ShieldCheck
 } from 'lucide-react';
 import { Browser } from '@capacitor/browser';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 type SearchMode = 'code' | 'actress' | 'title';
 
@@ -71,31 +72,52 @@ function normalizeApi(value: string): string {
   return url.origin + (url.pathname.endsWith('/api') ? url.pathname : url.pathname.replace(/\/+$/, '') + '/api');
 }
 async function send<T>(api: string, path: string, token: string | null, body?: unknown): Promise<T> {
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 27000);
+  const method = body === undefined ? 'GET' : 'POST';
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+  };
   try {
-    const response = await fetch(api + path, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        'Accept': 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { 'Authorization': 'Bearer ' + token } : {})
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: ctrl.signal
-    });
-    const result = await response.json() as ApiEnvelope<T>;
-    if (!response.ok || !result.success || result.data == null) {
-      const explanation = result.error?.message || result.message || '请求失败';
-      if (response.status === 401) throw new Error('登录已失效，请退出后重新登录');
-      throw new Error(explanation);
+    let status: number;
+    let result: ApiEnvelope<T>;
+    if (Capacitor.isNativePlatform()) {
+      // Android 内置 HTTP Bridge：独立本地 WebView 的 https://localhost 源不能通过
+      // 旧 Atlas Worker 的 CORS 白名单，原生请求避开浏览器 CORS 但仍验证 HTTPS。
+      const response = await CapacitorHttp.request({
+        url: api + path,
+        method,
+        headers,
+        ...(body === undefined ? {} : { data: body }),
+        connectTimeout: 27000,
+        readTimeout: 27000,
+        responseType: 'json'
+      });
+      status = response.status;
+      result = (typeof response.data === 'string' ? JSON.parse(response.data) : response.data) as ApiEnvelope<T>;
+    } else {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 27000);
+      try {
+        const response = await fetch(api + path, {
+          method, headers,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: controller.signal
+        });
+        status = response.status;
+        result = await response.json() as ApiEnvelope<T>;
+      } finally { clearTimeout(timeout); }
+    }
+    if (status < 200 || status >= 300 || !result.success || result.data == null) {
+      if (status === 401) throw new Error('登录已失效，请退出后重新登录');
+      throw new Error(result.error?.message || result.message || '请求失败');
     }
     return result.data;
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') throw new Error('连接超时，请检查网络或搜索源状态');
+    if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('timeout'))) {
+      throw new Error('连接超时，请检查网络或搜索源状态');
+    }
     throw err;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
