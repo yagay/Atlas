@@ -10,6 +10,15 @@
 - 目前原 Atlas 后端主要返回封面，并不保证返回多张作品预览截图。前端仅展示服务器确实提供的 `sampleImages` / `screenshots` / `samples` / `previewImages`。
 - 标题模式当前后端只返回多源站点卡片；不是独立的作品列表索引。
 
+## GitHub 登录
+
+- 登录页提供 GitHub 授权按钮；使用系统浏览器完成登录，App 监听 `appUrlOpen` 和冷启动回调。
+- 收到的只是一次性 `code`，调用 `POST /api/auth/oauth/exchange` 换取登录态，不把长期令牌放在深链里。
+- 旧 Atlas 服务器回调为 `atlas://auth/callback`，新 APK 也可处理；与原 Atlas 同时安装时，Android 可能弹出应用选择，需要选择 **JAV Search**。
+- 当前分支的后端新增 `GET /api/auth/github/capabilities` 与 `client=javsearch`，部署该后端后独立 App 自动使用 `javsearch://auth/callback`，避免旧 Atlas 抢回调。**仅构建 APK 不会自动部署后端。**
+- 后端授权仍使用现有 GitHub OAuth App 的 HTTPS 回调路径，不需更改 GitHub OAuth App 配置。
+- CI 使用 `scripts/configure-oauth.mjs` 向动态生成的 AndroidManifest 注入两个回调 scheme。
+
 ## 本地开发
 ```bash
 cd jav-standalone
