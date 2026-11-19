@@ -53,6 +53,7 @@ import java.util.concurrent.Executors;
 public class AtlasOverlayService extends Service {
     public static final String ACTION_START = "uk.wort.atlas.overlay.START";
     public static final String ACTION_STOP = "uk.wort.atlas.overlay.STOP";
+    public static final String ACTION_OPEN_PANEL = "uk.wort.atlas.overlay.OPEN_PANEL_SERVICE";
     public static final String ACTION_SET_OPACITY = "uk.wort.atlas.overlay.OPACITY";
     public static final String ACTION_SITE_LOGIN_FINISHED = "uk.wort.atlas.overlay.LOGIN_FINISHED";
     public static final String EXTRA_OPACITY = "opacity";
@@ -102,6 +103,10 @@ public class AtlasOverlayService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (ACTION_OPEN_PANEL.equals(intent.getAction())) {
+            if (running && token != null) openPanel();
             return START_NOT_STICKY;
         }
         if (ACTION_SET_OPACITY.equals(intent.getAction())) {
