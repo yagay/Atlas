@@ -119,3 +119,14 @@ label{font-size:12px;color:#b8bdc4;margin-top:14px;margin-bottom:8px;display:blo
 .viewer-image{max-width:100%;max-height:84vh;object-fit:contain}
 .viewer-controls{position:absolute;bottom:calc(30px + env(safe-area-inset-bottom));left:0;right:0;display:flex;justify-content:space-around}
 @media(min-width:600px){.main{padding:33px 22px}.panel{padding:22px}.detail-cover{width:155px;min-height:180px}.works-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.gallery{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+
+.login-divider{position:relative;text-align:center;color:#8e939c;font-size:12px;margin:17px 0 14px}
+.login-divider::before{content:"";height:1px;background:#363941;position:absolute;left:0;right:0;top:50%}
+.login-divider span{position:relative;padding:0 12px;background:#1c1e23}
+.github-login{display:flex;align-items:center;justify-content:center;gap:9px;border:1px solid #424650;color:#f4f4f6;background:#2b2e34;border-radius:10px;padding:12px 14px;font-size:14px;font-weight:650}
+.github-login:active{background:#363a42}
+.login-feedback{border-radius:9px;padding:10px 12px;font-size:12px;line-height:1.55;margin-top:14px}
+.login-feedback.error{border:1px solid #694043;background:#3b2529;color:#ffc5c5}
+.login-feedback.notice{border:1px solid #3c5148;background:#26382d;color:#b7e1c8}
+.oauth-guidance{color:#8b909a;font-size:11px;line-height:1.5;margin:10px 2px 0;text-align:center}
