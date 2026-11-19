@@ -10,6 +10,7 @@ import type { JavSubMode } from '@/types/source';
 import type { JavEnrichedData } from '@/types/search';
 import { JAV_SUB_MODES } from '@/types/source';
 import { SearchDock, SearchWorkspace } from '@/components/search';
+import { OverlaySearchButton } from '@/components/search/OverlaySearchButton';
 import { Panel } from '@/components/workbench';
 import { LanguageSwitcher } from '@/components/ui';
 import { useSearchFlow } from '@/hooks/useSearchFlow';
@@ -157,6 +158,7 @@ export const MainSearchPage: React.FC = () => {
             <span>Atlas · JAV 搜索</span>
           </button>
           <div className="flex items-center gap-1">
+            <OverlaySearchButton />
             <LanguageSwitcher />
             <button type="button" onClick={toggleTheme} aria-label="切换主题" title="切换主题"
               className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
