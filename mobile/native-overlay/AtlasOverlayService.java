@@ -10,6 +10,9 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Insets;
+import android.graphics.Rect;
+import android.os.Build;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
@@ -22,6 +25,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.WindowInsets;
+import android.view.WindowMetrics;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -45,6 +50,9 @@ import java.util.concurrent.Executors;
 public class AtlasOverlayService extends Service {
     public static final String ACTION_START = "uk.wort.atlas.overlay.START";
     public static final String ACTION_STOP = "uk.wort.atlas.overlay.STOP";
+    public static final String ACTION_SET_OPACITY = "uk.wort.atlas.overlay.OPACITY";
+    public static final String EXTRA_OPACITY = "opacity";
+    private static final String WINDOW_PREFS = "overlay_window";
     public static final String EXTRA_TOKEN = "token";
     private static final String CHANNEL = "atlas_jav_overlay";
     private static final int NOTIFICATION_ID = 7731;
@@ -54,25 +62,34 @@ public class AtlasOverlayService extends Service {
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private WindowManager windows;
     private WindowManager.LayoutParams bubbleParams;
+    private WindowManager.LayoutParams panelParams;
     private View bubble;
     private View panel;
     private EditText searchInput;
     private LinearLayout results;
+    private ScrollView resultScroll;
+    private TextView opacityLabel;
     private String currentMode = "code";
     private String token;
     private int searchGeneration = 0;
     private boolean closing = false;
+    private int opacityPercent = 100;
 
     public static boolean isRunning() { return running; }
 
     @Override public void onCreate() {
         super.onCreate();
         windows = (WindowManager) getSystemService(WINDOW_SERVICE);
+        opacityPercent = getSavedOpacity();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (ACTION_SET_OPACITY.equals(intent.getAction())) {
+            setPanelOpacity(intent.getIntExtra(EXTRA_OPACITY, getSavedOpacity()));
             return START_NOT_STICKY;
         }
         String nextToken = intent.getStringExtra(EXTRA_TOKEN);
@@ -115,6 +132,100 @@ public class AtlasOverlayService extends Service {
     }
 
     private int dp(float n) { return Math.round(getResources().getDisplayMetrics().density * n); }
+
+    private int getSavedOpacity() {
+        return clamp(getSharedPreferences(WINDOW_PREFS, MODE_PRIVATE).getInt("opacity", 100), 50, 100);
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(Math.max(min, max), value));
+    }
+
+    private void setPanelOpacity(int value) {
+        opacityPercent = clamp(value, 50, 100);
+        getSharedPreferences(WINDOW_PREFS, MODE_PRIVATE).edit().putInt("opacity", opacityPercent).apply();
+        if (opacityLabel != null) opacityLabel.setText(opacityPercent + "%");
+        if (panel != null && panelParams != null) {
+            panelParams.alpha = opacityPercent / 100f;
+            try { windows.updateViewLayout(panel, panelParams); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Keep a floating window inside the display's status/navigation/cutout insets.
+     * The panel is a small movable window, never an edge-to-edge page.
+     */
+    private Rect safeBounds() {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        int left = dp(8), top = dp(35), right = width - dp(8), bottom = height - dp(42);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowMetrics metrics = windows.getMaximumWindowMetrics();
+            Rect bounds = metrics.getBounds();
+            width = bounds.width();
+            height = bounds.height();
+            Insets bars = metrics.getWindowInsets().getInsetsIgnoringVisibility(
+                    WindowInsets.Type.statusBars() |
+                    WindowInsets.Type.navigationBars() |
+                    WindowInsets.Type.displayCutout());
+            left = Math.max(dp(8), bars.left + dp(8));
+            right = width - Math.max(dp(8), bars.right + dp(8));
+            top = Math.max(dp(35), bars.top + dp(10));
+            bottom = height - Math.max(dp(42), bars.bottom + dp(10));
+        }
+        return new Rect(left, top, Math.max(left + dp(220), right),
+                Math.max(top + dp(230), bottom));
+    }
+
+    private void keepPanelVisible() {
+        if (panel == null || panelParams == null) return;
+        Rect safe = safeBounds();
+        int w = panel.getWidth() > 0 ? panel.getWidth() : panelParams.width;
+        int h = panel.getHeight() > 0 ? panel.getHeight() : dp(200);
+        int x = clamp(panelParams.x, safe.left, Math.max(safe.left, safe.right - w));
+        int y = clamp(panelParams.y, safe.top, Math.max(safe.top, safe.bottom - h));
+        if (x != panelParams.x || y != panelParams.y) {
+            panelParams.x = x;
+            panelParams.y = y;
+            try { windows.updateViewLayout(panel, panelParams); } catch (Exception ignored) {}
+        }
+    }
+
+    private void enablePanelDrag(View handle) {
+        handle.setOnTouchListener(new View.OnTouchListener() {
+            private float touchX, touchY;
+            private int startingX, startingY;
+            @Override public boolean onTouch(View v, MotionEvent event) {
+                if (panelParams == null || panel == null) return false;
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        touchX = event.getRawX();
+                        touchY = event.getRawY();
+                        startingX = panelParams.x;
+                        startingY = panelParams.y;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        Rect area = safeBounds();
+                        int width = panel.getWidth() > 0 ? panel.getWidth() : panelParams.width;
+                        int height = panel.getHeight() > 0 ? panel.getHeight() : dp(220);
+                        panelParams.x = clamp(startingX + Math.round(event.getRawX() - touchX),
+                                area.left, Math.max(area.left, area.right - width));
+                        panelParams.y = clamp(startingY + Math.round(event.getRawY() - touchY),
+                                area.top, Math.max(area.top, area.bottom - height));
+                        try { windows.updateViewLayout(panel, panelParams); } catch (Exception ignored) {}
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        getSharedPreferences(WINDOW_PREFS, MODE_PRIVATE).edit()
+                                .putInt("panel_x", panelParams.x)
+                                .putInt("panel_y", panelParams.y).apply();
+                        return true;
+                    default:
+                        return true;
+                }
+            }
+        });
+    }
 
     private GradientDrawable background(int color, float radiusDp, int stroke) {
         GradientDrawable shape = new GradientDrawable();
@@ -246,12 +357,26 @@ public class AtlasOverlayService extends Service {
         if (panel != null || closing) return;
         if (bubble != null) bubble.setVisibility(View.GONE);
         LinearLayout root = vertical();
-        root.setPadding(dp(14), dp(13), dp(14), dp(13));
+        root.setPadding(dp(10), dp(9), dp(10), dp(9));
         root.setBackground(background(Color.rgb(27, 29, 35), 16, Color.rgb(69, 69, 76)));
         root.setElevation(dp(14));
         LinearLayout title = horizontal();
-        title.addView(label("Atlas · JAV 悬浮搜索", 16, Color.WHITE, true),
-                new LinearLayout.LayoutParams(0, dp(34), 1));
+        TextView dragTitle = label("☰  JAV 搜索 · 拖动", 14, Color.WHITE, true);
+        title.addView(dragTitle, new LinearLayout.LayoutParams(0, dp(36), 1));
+        enablePanelDrag(dragTitle);
+
+        Button opacityButton = action(opacityPercent + "%");
+        opacityButton.setTextSize(11);
+        opacityButton.setTextColor(Color.rgb(237, 198, 145));
+        opacityButton.setBackground(background(Color.rgb(48, 50, 57), 8, 0));
+        opacityLabel = opacityButton;
+        opacityButton.setOnClickListener(v -> {
+            int next = opacityPercent <= 55 ? 100 : (opacityPercent <= 70 ? 55 : opacityPercent <= 85 ? 70 : 85);
+            setPanelOpacity(next);
+        });
+        LinearLayout.LayoutParams opacityParams = new LinearLayout.LayoutParams(dp(51), dp(34));
+        opacityParams.rightMargin = dp(6);
+        title.addView(opacityButton, opacityParams);
         Button close = action("×");
         close.setTextSize(22);
         close.setTextColor(Color.WHITE);
@@ -299,25 +424,50 @@ public class AtlasOverlayService extends Service {
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(true);
         results = vertical();
-        results.setPadding(0, dp(12), 0, dp(10));
+        results.setPadding(0, dp(3), 0, 0);
         scroll.addView(results);
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        int scrollHeight = Math.min(dp(390), Math.round(dm.heightPixels * 0.47f));
-        root.addView(scroll, itemParams(-1, scrollHeight, 0));
-        addInfo("输入番号或关键词后，封面、详情及磁力链接会显示在这里。");
+        // The content is WRAP_CONTENT until it reaches a safe, scrollable height.
+        // No fixed 390dp blank area above/below a small result.
+        Rect safe = safeBounds();
+        int reservedForToolbar = dp(196);
+        final int maxResultsHeight = Math.min(dp(360),
+                Math.max(dp(88), safe.height() - reservedForToolbar));
+        ScrollView compactResults = new ScrollView(this) {
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(
+                        Math.min(maxResultsHeight, View.MeasureSpec.getSize(heightSpec)),
+                        View.MeasureSpec.AT_MOST));
+            }
+        };
+        compactResults.setFillViewport(false);
+        compactResults.setVerticalScrollBarEnabled(true);
+        scroll.removeView(results);
+        compactResults.addView(results);
+        resultScroll = compactResults;
+        resultScroll.setVisibility(View.GONE);
+        root.addView(resultScroll, itemParams(-1, -2, 4));
 
+        int panelWidth = Math.min(dp(350), safe.width());
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
-                dm.widthPixels - dp(24), WindowManager.LayoutParams.WRAP_CONTENT,
+                panelWidth, WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.TOP | Gravity.START;
-        p.x = dp(12);
-        p.y = Math.max(dp(36), Math.min(bubbleParams.y, Math.round(dm.heightPixels * 0.19f)));
+        p.x = clamp(getSharedPreferences(WINDOW_PREFS, MODE_PRIVATE).getInt("panel_x",
+                bubbleParams.x - panelWidth / 2), safe.left,
+                Math.max(safe.left, safe.right - panelWidth));
+        p.y = clamp(getSharedPreferences(WINDOW_PREFS, MODE_PRIVATE).getInt("panel_y",
+                bubbleParams.y), safe.top, Math.max(safe.top, safe.bottom - dp(210)));
+        p.alpha = opacityPercent / 100f;
         p.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         try {
             windows.addView(root, p);
             panel = root;
+            panelParams = p;
+            root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                if (panel == root) keepPanelVisible();
+            });
             input.requestFocus();
             ui.postDelayed(() -> {
                 if (panel == root) {
@@ -327,6 +477,9 @@ public class AtlasOverlayService extends Service {
             }, 160);
         } catch (Exception ex) {
             panel = null;
+            panelParams = null;
+            opacityLabel = null;
+            resultScroll = null;
             if (bubble != null) bubble.setVisibility(View.VISIBLE);
             Toast.makeText(this, "无法打开悬浮搜索框", Toast.LENGTH_SHORT).show();
         }
@@ -344,6 +497,9 @@ public class AtlasOverlayService extends Service {
         }
         results = null;
         searchInput = null;
+        resultScroll = null;
+        opacityLabel = null;
+        panelParams = null;
         if (bubble != null) bubble.setVisibility(View.VISIBLE);
     }
 
@@ -381,6 +537,7 @@ public class AtlasOverlayService extends Service {
         final String mode = currentMode;
         final String credential = token;
         results.removeAllViews();
+        if (resultScroll != null) resultScroll.setVisibility(View.VISIBLE);
         addInfo("正在搜索：" + query);
         io.execute(() -> {
             try {
@@ -405,6 +562,10 @@ public class AtlasOverlayService extends Service {
 
     private void showSearchResult(JSONObject data, int request) {
         if (results == null) return;
+        if (resultScroll != null) {
+            resultScroll.setVisibility(View.VISIBLE);
+            resultScroll.scrollTo(0, 0);
+        }
         results.removeAllViews();
         boolean populated = false;
         JSONObject detail = data.optJSONObject("detail");
