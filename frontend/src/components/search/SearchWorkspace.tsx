@@ -15,12 +15,11 @@ import {
   EmptyBlock,
 } from '@/components/workbench';
 import { SearchResultsPanel } from './SearchResultsPanel';
-import { getResultPanel } from '@/config/resultPanels';
 import { JavDetailPanel, JavActressResultsPanel, JavRecommendationsPanel } from '@/components/jav';
 import { useSearchFlow, useJavSearchFlow, useFavoritesManager, useSourceManager } from '@/hooks';
 import type { SearchTabType, JavSubMode } from '@/types/source';
 import type { JavRecommendationSeed } from '@/types';
-import type { JavEnrichedData, NovelEnrichedData } from '@/types/search';
+import type { JavEnrichedData } from '@/types/search';
 
 interface SearchWorkspaceProps {
   activeTab: SearchTabType;
@@ -68,22 +67,6 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
   const hasJavPrimary = activeTab === 'jav' && !isActressMode
     && (javFlow.javDetailStatus !== 'idle' || Boolean(javFlow.javDetail));
 
-  const commonPanelProps = {
-    isAuthenticated,
-    isProxyEnabled,
-    favorites: favoritesManager.favorites,
-    onLoginRequired: () => navigate('/login'),
-    onRefresh: () => searchFlow.handleSearch(searchFlow.keyword, searchFlow.enrichedPage),
-    onPageChange: (page: number) => searchFlow.handleSearch(searchFlow.keyword, page),
-  };
-
-  const getToggleFavorite = () => {
-    if (resultType === 'anime') return favoritesManager.handleToggleFavoriteAnime;
-    if (resultType === 'manga') return favoritesManager.handleToggleFavoriteManga;
-    if (resultType === 'novel') return favoritesManager.handleToggleFavoriteNovel;
-    return favoritesManager.handleToggleFavoriteMovie;
-  };
-
   const renderPrimary = () => {
     if (isActressMode && javData) {
       return (
@@ -126,17 +109,6 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
       );
     }
 
-    const Panel = getResultPanel(resultType);
-    if (enrichedData && Panel) {
-      return (
-        <Panel
-          data={enrichedData as NovelEnrichedData}
-          {...commonPanelProps}
-          onToggleFavorite={getToggleFavorite()}
-        />
-      );
-    }
-
     return (
       <SearchResultsPanel
         results={searchFlow.searchResults}
@@ -161,7 +133,7 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
       <PanelHeader
         icon={<Search className="h-4 w-4" />}
         title={searchFlow.keyword || t('search:results.title')}
-        meta={t(SEARCH_TABS_META[activeTab] ?? 'search:results.title')}
+        meta={t('tabs:jav.label')}
         actions={
           <>
             {enrichedData ? (
@@ -178,7 +150,7 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
               className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium text-surface-500 transition-colors hover:bg-surface-100 hover:text-surface-700 dark:hover:bg-surface-800 dark:hover:text-surface-200"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t('search:results.backToDiscovery')}</span>
+              <span className="hidden sm:inline">返回搜索</span>
             </button>
           </>
         }
@@ -200,7 +172,7 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary-500 px-3 text-[11px] font-medium text-white transition-colors hover:bg-primary-600"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                {t('search:results.backToDiscovery')}
+                返回搜索
               </button>
             }
           />
@@ -227,11 +199,3 @@ export const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
   );
 };
 
-const SEARCH_TABS_META: Record<string, string> = {
-  jav: 'tabs:jav.label',
-  anime: 'tabs:anime.label',
-  movie: 'tabs:movie.label',
-  manga: 'tabs:manga.label',
-  novel: 'tabs:novel.label',
-  sources: 'tabs:sources.label',
-};
