@@ -842,7 +842,9 @@ public class AtlasOverlayService extends Service {
                 Button button = action(sourceName + (OverlaySourceClient.supported(sourceId) ? " · 查看内容" : " · 内嵌网页"));
                 button.setTextColor(Color.rgb(228, 229, 233));
                 button.setBackground(background(Color.rgb(48, 50, 58), 8, 0));
-                button.setOnClickListener(v -> loadSourcePreview(sourceId, sourceName, url, false));
+                // Both Atlas main app and floating search now use OverlayWebPanel
+                // for site navigation, parsing, sign-in and magnet actions.
+                button.setOnClickListener(v -> openEmbeddedSource(sourceId, sourceName, url));
                 results.addView(button, itemParams(-1, dp(38), 5));
             }
         }
@@ -895,7 +897,7 @@ public class AtlasOverlayService extends Service {
             int availableHeight = Math.max(dp(220), safeBounds().height() - dp(105));
             int webHeight = Math.min(dp(530), availableHeight);
             OverlayWebPanel embedded = new OverlayWebPanel(
-                    this, sourceId, name, url, webHeight, new OverlayWebPanel.Actions() {
+                    this, sourceId, name, url, webHeight, true, new OverlayWebPanel.Actions() {
                 @Override public void returnToResults() {
                     closeEmbeddedWeb();
                     int request = ++searchGeneration;
@@ -910,18 +912,6 @@ public class AtlasOverlayService extends Service {
                     }
                 }
 
-                @Override public void reparseAfterLogin() {
-                    closeEmbeddedWeb();
-                    if (OverlaySourceClient.supported(sourceId) &&
-                            selectedSourceUrl != null) {
-                        loadSourcePreview(sourceId, name, selectedSourceUrl, false);
-                    } else {
-                        Toast.makeText(AtlasOverlayService.this,
-                                "该来源尚无解析器，请继续使用内嵌网页",
-                                Toast.LENGTH_LONG).show();
-                        openEmbeddedSource(sourceId, name, url);
-                    }
-                }
             });
             inlineBrowser = embedded;
             if (modeControls != null) modeControls.setVisibility(View.GONE);
