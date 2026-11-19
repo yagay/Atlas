@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { App as NativeApp } from '@capacitor/app';
 import { useAuthStore } from '@/stores/authStore';
 import { atlasOverlay } from '@/services/atlasOverlay';
 
 /** Enables the original Atlas Android app's native floating JAV search window. */
-export const OverlaySearchButton: React.FC = () => {
+export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }> = ({ variant = 'compact' }) => {
   const token = useAuthStore(state => state.token);
   const [enabled, setEnabled] = useState(false);
+  const [permissionGranted, setPermissionGranted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const pendingPermission = useRef(false);
@@ -32,13 +33,17 @@ export const OverlaySearchButton: React.FC = () => {
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     void atlasOverlay.status().then(result => {
-      if (!disposed) setEnabled(result.running);
+      if (!disposed) {
+        setEnabled(result.running);
+        setPermissionGranted(result.permissionGranted);
+      }
     }).catch(() => undefined);
 
     void NativeApp.addListener('resume', () => {
       void atlasOverlay.status().then(result => {
         if (disposed) return;
         setEnabled(result.running);
+        setPermissionGranted(result.permissionGranted);
         if (pendingPermission.current) {
           pendingPermission.current = false;
           if (result.permissionGranted) void enable();
@@ -61,7 +66,11 @@ export const OverlaySearchButton: React.FC = () => {
     }
   }, [token]);
 
-  if (!atlasOverlay.available()) return null;
+  if (!atlasOverlay.available()) {
+    return variant === 'settings' ? (
+      <p className="text-sm text-surface-500">悬浮搜索仅支持安装后的 Android Atlas App。</p>
+    ) : null;
+  }
 
   const toggle = async () => {
     if (busy) return;
@@ -69,6 +78,7 @@ export const OverlaySearchButton: React.FC = () => {
     setMessage('');
     try {
       const status = await atlasOverlay.status();
+      setPermissionGranted(status.permissionGranted);
       if (status.running) {
         await atlasOverlay.stop();
         setEnabled(false);
@@ -87,6 +97,60 @@ export const OverlaySearchButton: React.FC = () => {
       setBusy(false);
     }
   };
+
+  if (variant === 'settings') {
+    return (
+      <section className="rounded-2xl border border-surface-200 bg-white p-4 shadow-sm dark:border-surface-800 dark:bg-surface-900/70 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+              <Search className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="text-base font-semibold text-heading">悬浮 JAV 搜索</h2>
+              <p className="mt-1 text-sm leading-6 text-surface-500">
+                开启后可在其他应用上方显示可拖动搜索图标。点击图标展开搜索框，直接查看封面、详情和磁力结果。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-label="开启或关闭悬浮搜索"
+            aria-checked={enabled}
+            onClick={() => void toggle()}
+            disabled={busy || !token}
+            className={'relative mt-1 h-8 w-14 shrink-0 rounded-full transition-colors ' +
+              (enabled ? 'bg-amber-500' : 'bg-surface-300 dark:bg-surface-700')}
+          >
+            <span className={'absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ' +
+              (enabled ? 'translate-x-6' : 'translate-x-0')} />
+            {busy ? <Loader2 className="absolute left-[19px] top-2 h-4 w-4 animate-spin text-surface-700" /> : null}
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-surface-100 pt-4 text-xs dark:border-surface-800">
+          <span className={enabled ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-surface-500'}>
+            状态：{enabled ? '已开启' : '未开启'}
+          </span>
+          <span className={'inline-flex items-center gap-1 ' + (permissionGranted ?
+            'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>
+            {permissionGranted ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+            悬浮窗权限：{permissionGranted ? '已授权' : '未授权'}
+          </span>
+        </div>
+        {!permissionGranted && (
+          <button type="button" disabled={busy} onClick={() => void toggle()}
+            className="mt-4 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            前往系统设置并允许悬浮窗
+          </button>
+        )}
+        <p className="mt-3 text-xs leading-5 text-surface-500">
+          首次启用需要在 Android 系统设置中允许「显示在其他应用上层」。关闭开关或退出登录后会停止悬浮服务。
+        </p>
+        {message && <p role="status" className="mt-3 rounded-lg bg-surface-100 p-3 text-xs leading-5 text-surface-700 dark:bg-surface-800 dark:text-surface-200">{message}</p>}
+      </section>
+    );
+  }
 
   return (
     <div className="relative">
