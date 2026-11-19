@@ -55,6 +55,10 @@ jobs:
         working-directory: jav-standalone
         run: npx cap sync android
 
+      - name: Register GitHub OAuth return links
+        working-directory: jav-standalone
+        run: node scripts/configure-oauth.mjs
+
       - name: Assemble debug
         working-directory: jav-standalone/android
         run: |
