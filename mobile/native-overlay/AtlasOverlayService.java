@@ -633,13 +633,14 @@ public class AtlasOverlayService extends Service {
         }
         try {
             android.net.Uri magnet = android.net.Uri.parse(value.trim());
+            // Magnet URIs are opaque on some Android builds, so do not call
+            // Uri.getQueryParameter(), which throws for non-hierarchical URIs.
             if (!"magnet".equalsIgnoreCase(magnet.getScheme())
-                    || magnet.getQueryParameter("xt") == null) {
+                    || !magnet.getSchemeSpecificPart().contains("xt=")) {
                 Toast.makeText(this, "磁力链接格式无效", Toast.LENGTH_SHORT).show();
                 return;
             }
             Intent open = new Intent(Intent.ACTION_VIEW, magnet);
-            open.addCategory(Intent.CATEGORY_BROWSABLE);
             open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(open);
         } catch (ActivityNotFoundException noHandler) {
