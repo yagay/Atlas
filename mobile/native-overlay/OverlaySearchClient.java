@@ -4,6 +4,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -70,6 +71,67 @@ final class OverlaySearchClient {
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    /**
+     * Account search history is already saved by POST /api/search on the
+     * backend. Read and manage that same account data from the native overlay:
+     * no second on-device history database, no duplicated search POST.
+     */
+    private static JSONObject historyRequest(String method, String path, String token) throws Exception {
+        if (token == null || token.trim().isEmpty()) throw new Exception("请先登录 Atlas");
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(BASE + path).openConnection();
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(12000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            int status = connection.getResponseCode();
+            if (status == 401) throw new Exception("登录状态已失效，请回到 Atlas 重新登录");
+            InputStream raw = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (raw == null) throw new Exception("历史接口没有响应 (HTTP " + status + ")");
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            try (InputStream input = raw) {
+                byte[] part = new byte[4096];
+                int n;
+                while ((n = input.read(part)) != -1) {
+                    buffer.write(part, 0, n);
+                    if (buffer.size() > 512 * 1024) throw new Exception("历史记录响应过大");
+                }
+            }
+            JSONObject response = new JSONObject(buffer.toString("UTF-8"));
+            if (status < 200 || status >= 300 || !response.optBoolean("success", false)) {
+                JSONObject error = response.optJSONObject("error");
+                String message = error == null ? "" : error.optString("message", "");
+                if (message.isEmpty()) message = response.optString("message", "历史接口失败 (HTTP " + status + ")");
+                throw new Exception(message);
+            }
+            return response.optJSONObject("data") == null
+                    ? new JSONObject() : response.optJSONObject("data");
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    static JSONArray history(String token, int limit) throws Exception {
+        JSONObject data = historyRequest("GET",
+                "/user/search-history?limit=" + Math.max(1, Math.min(100, limit)), token);
+        JSONArray history = data.optJSONArray("history");
+        return history == null ? new JSONArray() : history;
+    }
+
+    static void deleteHistory(String token, String id) throws Exception {
+        if (id == null || !id.matches("[A-Za-z0-9_-]{1,128}")) {
+            throw new Exception("无效的历史记录 ID");
+        }
+        historyRequest("DELETE", "/user/search-history/" + id, token);
+    }
+
+    static void clearHistory(String token) throws Exception {
+        historyRequest("DELETE", "/user/search-history", token);
     }
 
     static Bitmap cover(String rawUrl) {
