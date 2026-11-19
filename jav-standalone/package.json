@@ -14,7 +14,8 @@
     "@capacitor/core": "^8.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "lucide-react": "^0.441.0"
+    "lucide-react": "^0.441.0",
+    "@capacitor/app": "^8.1.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.2",
