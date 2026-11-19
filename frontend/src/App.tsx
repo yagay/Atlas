@@ -15,6 +15,7 @@ import { RouteScrollRestoration } from '@/components/layout/RouteScrollRestorati
 import { PullToRefreshProvider } from '@/components/layout/PullToRefresh';
 import { ToastContainer } from '@/components/ui/Toast';
 import { MainSearchPage } from '@/pages/MainSearchPage';
+import { JavSettingsPage } from '@/pages/JavSettingsPage';
 import { LoginPage, RegisterPage, ForgotPasswordPage, GitHubCallbackPage, GoogleCallbackPage } from '@/pages/auth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
@@ -77,6 +78,7 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/" element={<Navigate to="/main?tab=jav" replace />} />
               <Route path="/main" element={<AuthGate><MainSearchPage /></AuthGate>} />
+              <Route path="/settings" element={<AuthGate><JavSettingsPage /></AuthGate>} />
               <Route path="/login" element={<AuthGate guestOnly><LoginPage /></AuthGate>} />
               <Route path="/register" element={<AuthGate guestOnly><RegisterPage /></AuthGate>} />
               <Route path="/forgot-password" element={<AuthGate guestOnly><ForgotPasswordPage /></AuthGate>} />
