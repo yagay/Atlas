@@ -460,6 +460,16 @@ public class AtlasOverlayService extends Service {
         title.addView(dragTitle, new LinearLayout.LayoutParams(0, dp(36), 1));
         enablePanelDrag(dragTitle);
 
+        Button historyButton = action("历史");
+        historyButton.setTextSize(11);
+        historyButton.setContentDescription("查看账号搜索历史");
+        historyButton.setTextColor(Color.rgb(228, 211, 188));
+        historyButton.setBackground(background(Color.rgb(48, 50, 57), 8, 0));
+        historyButton.setOnClickListener(v -> showHistory(true));
+        LinearLayout.LayoutParams historyParams = new LinearLayout.LayoutParams(dp(47), dp(34));
+        historyParams.rightMargin = dp(5);
+        title.addView(historyButton, historyParams);
+
         Button opacityButton = action(opacityPercent + "%");
         opacityButton.setTextSize(11);
         opacityButton.setTextColor(Color.rgb(237, 198, 145));
@@ -571,6 +581,9 @@ public class AtlasOverlayService extends Service {
             root.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
                 if (panel == root) keepPanelVisible();
             });
+            // Recently searched terms are visible on first opening. The
+            // history button can expand the whole account list at any time.
+            showHistory(false);
             input.requestFocus();
             ui.postDelayed(() -> {
                 if (panel == root) {
@@ -640,6 +653,200 @@ public class AtlasOverlayService extends Service {
         TextView text = label(message, 12, Color.rgb(193, 197, 204), false);
         text.setPadding(dp(2), dp(3), dp(2), dp(3));
         results.addView(text);
+    }
+
+    private void returnFromHistory() {
+        if (results == null) return;
+        int request = ++searchGeneration;
+        if (lastSearchData != null) {
+            showSearchResult(lastSearchData, request);
+        } else {
+            results.removeAllViews();
+            if (resultScroll != null) resultScroll.setVisibility(View.GONE);
+        }
+    }
+
+    private void showHistory(boolean all) {
+        if (results == null || panel == null) return;
+        closeEmbeddedWeb();
+        final int request = ++searchGeneration;
+        final String credential = token;
+        results.removeAllViews();
+        if (resultScroll != null) {
+            resultScroll.setVisibility(View.VISIBLE);
+            resultScroll.scrollTo(0, 0);
+        }
+        addInfo("正在读取账号搜索历史…");
+        io.execute(() -> {
+            try {
+                JSONArray entries = OverlaySearchClient.history(credential, 40);
+                ui.post(() -> {
+                    if (results != null && panel != null && request == searchGeneration) {
+                        renderHistory(entries, all, request);
+                    }
+                });
+            } catch (Exception problem) {
+                String message = problem.getMessage();
+                ui.post(() -> {
+                    if (results == null || request != searchGeneration) return;
+                    results.removeAllViews();
+                    addHistoryToolbar(0);
+                    addInfo(message == null ? "搜索历史加载失败，请重试" : message);
+                    Button retry = action("重新读取");
+                    retry.setOnClickListener(v -> showHistory(true));
+                    results.addView(retry, itemParams(-1, dp(38), 6));
+                });
+            }
+        });
+    }
+
+    private void addHistoryToolbar(int count) {
+        if (results == null) return;
+        LinearLayout bar = horizontal();
+        bar.addView(label("搜索历史" + (count > 0 ? " · " + count : ""), 14,
+                Color.rgb(238, 189, 124), true), new LinearLayout.LayoutParams(0, -2, 1));
+        Button back = action("返回");
+        back.setOnClickListener(v -> returnFromHistory());
+        back.setTextColor(Color.rgb(235, 219, 195));
+        back.setBackground(background(Color.rgb(58, 61, 68), 8, 0));
+        bar.addView(back, new LinearLayout.LayoutParams(dp(53), dp(34)));
+        if (count > 0) {
+            Button clear = action("清空");
+            clear.setTextColor(Color.rgb(255, 188, 179));
+            clear.setBackground(background(Color.rgb(65, 49, 52), 8, 0));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(53), dp(34));
+            p.leftMargin = dp(5);
+            bar.addView(clear, p);
+            clear.setOnClickListener(v -> confirmClearHistory());
+        }
+        results.addView(bar, itemParams(-1, dp(38), 4));
+    }
+
+    private void renderHistory(JSONArray entries, boolean all, int request) {
+        if (results == null || request != searchGeneration) return;
+        results.removeAllViews();
+        int total = entries.length();
+        addHistoryToolbar(total);
+        if (total == 0) {
+            addInfo("暂无搜索历史。搜索番号、演员或标题后会自动记录，并和 Atlas 主页面同步。");
+            return;
+        }
+        int shown = Math.min(total, all ? 40 : 5);
+        for (int i = 0; i < shown; i++) {
+            JSONObject item = entries.optJSONObject(i);
+            if (item == null) continue;
+            String id = item.optString("id", "");
+            String query = item.optString("query", "").trim();
+            if (query.isEmpty()) continue;
+            String title = item.optString("title", "");
+            if (title.isEmpty() || "null".equals(title)) title = query;
+            String date = "";
+            long millis = item.optLong("created_at", item.optLong("createdAt", 0));
+            if (millis > 0) {
+                try {
+                    date = new java.text.SimpleDateFormat("MM-dd HH:mm",
+                            java.util.Locale.getDefault()).format(new java.util.Date(millis));
+                } catch (Exception ignored) {}
+            }
+            LinearLayout row = horizontal();
+            row.setPadding(dp(8), dp(6), dp(4), dp(6));
+            row.setBackground(background(Color.rgb(43, 46, 54), 8, 0));
+            LinearLayout info = vertical();
+            TextView name = label(title, 12, Color.WHITE, true);
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            info.addView(name);
+            TextView meta = label(query.equals(title) ? date : query + " · " + date,
+                    10, Color.rgb(179, 182, 192), false);
+            meta.setSingleLine(true);
+            meta.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            info.addView(meta, itemParams(-1, -2, 2));
+            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+            info.setOnClickListener(v -> {
+                if (searchInput != null) {
+                    searchInput.setText(query);
+                    searchInput.setSelection(searchInput.length());
+                    if (query.matches("(?i)^(?:[a-z]{2,12}[-_ ]?\\d{2,8}|FC2[-_ ]?(?:PPV[-_ ]?)?\\d{4,9})$")) {
+                        currentMode = "code";
+                    }
+                    performSearch();
+                }
+            });
+            Button erase = action("×");
+            erase.setTextSize(19);
+            erase.setContentDescription("删除历史记录：" + query);
+            erase.setTextColor(Color.rgb(246, 180, 171));
+            erase.setBackground(background(Color.rgb(63, 48, 52), 8, 0));
+            LinearLayout.LayoutParams eraseParams = new LinearLayout.LayoutParams(dp(32), dp(33));
+            eraseParams.leftMargin = dp(7);
+            row.addView(erase, eraseParams);
+            erase.setOnClickListener(v -> deleteHistoryItem(id));
+            results.addView(row, itemParams(-1, -2, 5));
+        }
+        if (!all && total > shown) {
+            Button allButton = action("查看全部 " + total + " 条历史");
+            allButton.setTextColor(Color.rgb(246, 219, 176));
+            allButton.setBackground(background(Color.rgb(59, 62, 69), 8, 0));
+            allButton.setOnClickListener(v -> renderHistory(entries, true, request));
+            results.addView(allButton, itemParams(-1, dp(36), 7));
+        }
+    }
+
+    private void deleteHistoryItem(String id) {
+        if (id == null || id.isEmpty() || token == null) return;
+        final int request = ++searchGeneration;
+        String credential = token;
+        io.execute(() -> {
+            try {
+                OverlaySearchClient.deleteHistory(credential, id);
+                ui.post(() -> {
+                    if (panel != null && request == searchGeneration) showHistory(true);
+                });
+            } catch (Exception ex) {
+                ui.post(() -> {
+                    if (panel == null || request != searchGeneration) return;
+                    Toast.makeText(this, "删除历史失败：" + ex.getMessage(), Toast.LENGTH_LONG).show();
+                    showHistory(true);
+                });
+            }
+        });
+    }
+
+    private void confirmClearHistory() {
+        if (results == null) return;
+        results.removeAllViews();
+        addHeading("确定要清空账号全部搜索历史吗？");
+        addInfo("清空后主 App 和悬浮窗口中都不会再显示这些记录。");
+        LinearLayout buttons = horizontal();
+        Button cancel = action("取消");
+        cancel.setOnClickListener(v -> showHistory(true));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(40), 1));
+        Button confirm = action("确认清空");
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(40), 1);
+        p.leftMargin = dp(8);
+        buttons.addView(confirm, p);
+        confirm.setOnClickListener(v -> {
+            final int request = ++searchGeneration;
+            final String credential = token;
+            results.removeAllViews();
+            addInfo("正在清空账号历史…");
+            io.execute(() -> {
+                try {
+                    OverlaySearchClient.clearHistory(credential);
+                    ui.post(() -> {
+                        if (panel != null && request == searchGeneration) showHistory(true);
+                    });
+                } catch (Exception error) {
+                    ui.post(() -> {
+                        if (panel == null || request != searchGeneration) return;
+                        Toast.makeText(this, "清空失败：" + error.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                        showHistory(true);
+                    });
+                }
+            });
+        });
+        results.addView(buttons, itemParams(-1, dp(40), 9));
     }
 
     private void performSearch() {
