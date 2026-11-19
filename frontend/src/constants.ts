@@ -13,17 +13,20 @@
 
 /* ==================== API 配置 ==================== */
 
-/** API 基础地址 — 同源相对路径（Worker 同时托管前端与 /api），不再与部署域名绑定 */
-export const API_BASE_URL = '/api';
+/** 网页部署同源 /api；原版 Capacitor APK 内置页面必须访问线上 API 而非 localhost。 */
+import { Capacitor } from '@capacitor/core';
 
-/** 获取 API 基础地址（同源，恒为 /api） */
+export const API_BASE_URL = '/api';
+const NATIVE_BACKEND_ORIGIN = 'https://atlas.wort.uk';
+
+/** Android 原生壳使用 CapacitorHttp 补丁处理跨域，Web 仍使用同源。 */
 export function getApiBaseUrl(): string {
-  return API_BASE_URL;
+  return Capacitor.isNativePlatform() ? `${NATIVE_BACKEND_ORIGIN}/api` : API_BASE_URL;
 }
 
-/** 获取后端基础地址（不含 /api）—— 同源部署下为空串，拼接后得到相对路径 */
+/** JavBus 封面代理必须指向服务器，不得落到 APK 本地 https://localhost。 */
 export function getBackendBaseUrl(): string {
-  return '';
+  return Capacitor.isNativePlatform() ? NATIVE_BACKEND_ORIGIN : '';
 }
 
 /** API 请求行为配置 — 纯客户端重试策略 */
