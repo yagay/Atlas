@@ -28,6 +28,11 @@
     },
     "CapacitorHttp": {
       "enabled": true
+    },
+    "SystemBars": {
+      "insetsHandling": "native",
+      "initialViewportFitValueHint": "contain",
+      "hidden": false
     }
   }
 }
