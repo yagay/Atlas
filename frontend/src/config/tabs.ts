@@ -85,4 +85,6 @@ export const SEARCH_TABS: Record<SearchTabType, TabConfig> = {
 export const ALL_TABS: TabConfig[] = Object.values(SEARCH_TABS);
 
 /** 常驻主导航的 Tab 列表 */
-export const PINNED_TABS: TabConfig[] = ALL_TABS.filter((t) => t.pinned);
+// JAV 专用版本的导航入口：不展示其他内容类型。
+// 暂不删除其静态配置，便于保留旧数据类型并避免对组件契约造成破坏。
+export const PINNED_TABS: TabConfig[] = ALL_TABS.filter((t) => t.id === 'jav');
