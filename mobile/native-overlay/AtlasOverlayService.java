@@ -10,10 +10,6 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Insets;
-import android.graphics.Rect;
-import android.content.res.Configuration;
-import android.os.Build;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
@@ -26,8 +22,6 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.WindowMetrics;
-import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -60,8 +54,6 @@ public class AtlasOverlayService extends Service {
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private WindowManager windows;
     private WindowManager.LayoutParams bubbleParams;
-    private WindowManager.LayoutParams panelParams;
-    private int activeImeInset = 0;
     private View bubble;
     private View panel;
     private EditText searchInput;
@@ -124,63 +116,6 @@ public class AtlasOverlayService extends Service {
 
     private int dp(float n) { return Math.round(getResources().getDisplayMetrics().density * n); }
 
-    /**
-     * Overlay coordinates aren't safe to derive from DisplayMetrics.heightPixels:
-     * that number varies with cutouts, edge-to-edge and three-button navigation.
-     * Reserve both bars and the display cutout plus a little grab margin.
-     */
-    private static final class SafeArea {
-        final int width, height, left, top, right, bottom;
-        SafeArea(int w, int h, int l, int t, int r, int b) {
-            width = w; height = h; left = l; top = t; right = r; bottom = b;
-        }
-    }
-
-    private SafeArea safeArea() {
-        DisplayMetrics display = getResources().getDisplayMetrics();
-        int width = display.widthPixels;
-        int height = display.heightPixels;
-        int left = dp(12), right = dp(12);
-        int top = dp(38), bottom = dp(38);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowMetrics metrics = windows.getCurrentWindowMetrics();
-            Rect bounds = metrics.getBounds();
-            width = bounds.width();
-            height = bounds.height();
-            Insets bars = metrics.getWindowInsets().getInsetsIgnoringVisibility(
-                    WindowInsets.Type.statusBars() |
-                    WindowInsets.Type.navigationBars() |
-                    WindowInsets.Type.displayCutout());
-            left = Math.max(left, bars.left + dp(8));
-            right = Math.max(right, bars.right + dp(8));
-            top = Math.max(top, bars.top + dp(12));
-            bottom = Math.max(bottom, bars.bottom + dp(12));
-        } else {
-            // Pre-Android 11 compatibility: resource insets + conservative margins.
-            int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-            int navId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-            if (statusId > 0) top = Math.max(top, getResources().getDimensionPixelSize(statusId) + dp(12));
-            if (navId > 0) bottom = Math.max(bottom, getResources().getDimensionPixelSize(navId) + dp(12));
-        }
-        return new SafeArea(width, height, left, top, right, bottom);
-    }
-
-    private int bounded(int value, int min, int max) {
-        return Math.max(min, Math.min(Math.max(min, max), value));
-    }
-
-    /** Keep the entire panel and all controls inside the accessible display area. */
-    private void fitPanel(int imeInset) {
-        if (panel == null || panelParams == null) return;
-        SafeArea a = safeArea();
-        panelParams.x = a.left;
-        panelParams.y = a.top;
-        panelParams.width = Math.max(dp(210), a.width - a.left - a.right);
-        int available = a.height - a.top - a.bottom - Math.max(0, imeInset) - dp(6);
-        panelParams.height = Math.min(dp(560), Math.max(dp(145), available));
-        try { windows.updateViewLayout(panel, panelParams); } catch (Exception ignored) {}
-    }
-
     private GradientDrawable background(int color, float radiusDp, int stroke) {
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(color);
@@ -224,18 +159,18 @@ public class AtlasOverlayService extends Service {
         icon.setBackground(background(Color.rgb(236, 179, 100), 50, Color.rgb(250, 202, 136)));
         icon.setElevation(dp(9));
         int size = dp(52);
-        SafeArea safe = safeArea();
+        DisplayMetrics dm = getResources().getDisplayMetrics();
         bubbleParams = new WindowManager.LayoutParams(size, size,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         bubbleParams.gravity = Gravity.TOP | Gravity.START;
         bubbleParams.x = getSharedPreferences("overlay_position", MODE_PRIVATE)
-                .getInt("x", safe.width - safe.right - size);
+                .getInt("x", dm.widthPixels - size - dp(14));
         bubbleParams.y = getSharedPreferences("overlay_position", MODE_PRIVATE)
-                .getInt("y", safe.top + dp(145));
-        bubbleParams.x = bounded(bubbleParams.x, safe.left, safe.width - safe.right - size);
-        bubbleParams.y = bounded(bubbleParams.y, safe.top, safe.height - safe.bottom - size);
+                .getInt("y", dp(190));
+        bubbleParams.x = Math.max(0, Math.min(dm.widthPixels - size, bubbleParams.x));
+        bubbleParams.y = Math.max(dp(25), Math.min(dm.heightPixels - size - dp(35), bubbleParams.y));
         icon.setOnTouchListener(new View.OnTouchListener() {
             private float initialX, initialY;
             private int startX, startY;
@@ -252,11 +187,8 @@ public class AtlasOverlayService extends Service {
                         float dy = event.getRawY() - initialY;
                         if (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6)) moved = true;
                         if (moved) {
-                            SafeArea currentSafe = safeArea();
-                            bubbleParams.x = bounded(startX + Math.round(dx), currentSafe.left,
-                                    currentSafe.width - currentSafe.right - size);
-                            bubbleParams.y = bounded(startY + Math.round(dy), currentSafe.top,
-                                    currentSafe.height - currentSafe.bottom - size);
+                            bubbleParams.x = Math.max(0, Math.min(dm.widthPixels - size, startX + Math.round(dx)));
+                            bubbleParams.y = Math.max(dp(25), Math.min(dm.heightPixels - size - dp(35), startY + Math.round(dy)));
                             if (bubble != null) windows.updateViewLayout(bubble, bubbleParams);
                         }
                         return true;
@@ -369,48 +301,23 @@ public class AtlasOverlayService extends Service {
         results = vertical();
         results.setPadding(0, dp(12), 0, dp(10));
         scroll.addView(results);
-        // A weighted scroll area is the only flexible portion of the panel.
-        // It shrinks when the IME opens, keeping the search input and results reachable.
-        LinearLayout.LayoutParams resultsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        root.addView(scroll, resultsParams);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int scrollHeight = Math.min(dp(390), Math.round(dm.heightPixels * 0.47f));
+        root.addView(scroll, itemParams(-1, scrollHeight, 0));
         addInfo("输入番号或关键词后，封面、详情及磁力链接会显示在这里。");
 
-        SafeArea safe = safeArea();
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
-                Math.max(dp(210), safe.width - safe.left - safe.right),
-                Math.min(dp(560), Math.max(dp(145),
-                        safe.height - safe.top - safe.bottom - dp(6))),
+                dm.widthPixels - dp(24), WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.TOP | Gravity.START;
-        p.x = safe.left;
-        p.y = safe.top;
+        p.x = dp(12);
+        p.y = Math.max(dp(36), Math.min(bubbleParams.y, Math.round(dm.heightPixels * 0.19f)));
         p.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            p.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER;
-        }
-
-        // Some Android versions give TYPE_APPLICATION_OVERLAY IME insets without
-        // resizing the window. Apply the inset ourselves and preserve a scroll area.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            root.setOnApplyWindowInsetsListener((view, insets) -> {
-                Insets ime = insets.getInsets(WindowInsets.Type.ime());
-                Insets nav = insets.getInsets(WindowInsets.Type.navigationBars());
-                int overlap = Math.max(0, ime.bottom - nav.bottom);
-                if (overlap != activeImeInset) {
-                    activeImeInset = overlap;
-                    ui.post(() -> { if (panel == root) fitPanel(activeImeInset); });
-                }
-                return view.onApplyWindowInsets(insets);
-            });
-        }
         try {
             windows.addView(root, p);
             panel = root;
-            panelParams = p;
-            activeImeInset = 0;
             input.requestFocus();
             ui.postDelayed(() -> {
                 if (panel == root) {
@@ -420,7 +327,6 @@ public class AtlasOverlayService extends Service {
             }, 160);
         } catch (Exception ex) {
             panel = null;
-            panelParams = null;
             if (bubble != null) bubble.setVisibility(View.VISIBLE);
             Toast.makeText(this, "无法打开悬浮搜索框", Toast.LENGTH_SHORT).show();
         }
@@ -438,8 +344,6 @@ public class AtlasOverlayService extends Service {
         }
         results = null;
         searchInput = null;
-        panelParams = null;
-        activeImeInset = 0;
         if (bubble != null) bubble.setVisibility(View.VISIBLE);
     }
 
@@ -638,18 +542,6 @@ public class AtlasOverlayService extends Service {
             if (errors != null && !errors.optString("search").isEmpty()) info = errors.optString("search");
             addInfo(info);
         }
-    }
-
-    @Override public void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        SafeArea a = safeArea();
-        if (bubble != null && bubbleParams != null) {
-            int size = dp(52);
-            bubbleParams.x = bounded(bubbleParams.x, a.left, a.width - a.right - size);
-            bubbleParams.y = bounded(bubbleParams.y, a.top, a.height - a.bottom - size);
-            try { windows.updateViewLayout(bubble, bubbleParams); } catch (Exception ignored) {}
-        }
-        fitPanel(activeImeInset);
     }
 
     @Override public void onDestroy() {
