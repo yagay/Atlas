@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Search, Magnet, Copy, ExternalLink, ArrowLeft, RefreshCw, UserRound,
+  Search, Magnet, Copy, ExternalLink, RefreshCw,
   LogOut, Settings2, X, Film, ImageOff, CalendarDays, Clock3,
   Check, Eye, EyeOff, ChevronLeft, ChevronRight, Link2, ShieldCheck
 } from 'lucide-react';
