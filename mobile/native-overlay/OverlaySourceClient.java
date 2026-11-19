@@ -3,6 +3,7 @@ package uk.wort.atlas.overlay;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.text.Html;
+import android.webkit.CookieManager;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -12,9 +13,6 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
-import java.net.URLDecoder;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -98,6 +96,39 @@ final class OverlaySourceClient {
         return host.equals(trusted) || host.endsWith("." + trusted);
     }
 
+    /**
+     * Shared allowlist for external-source fetching and the one-time embedded
+     * sign-in Activity. Login pages cannot navigate to an unrelated host.
+     */
+    static boolean isApprovedWebUrl(String sourceId, String rawUrl) {
+        try {
+            URL target = new URL(rawUrl);
+            return "https".equalsIgnoreCase(target.getProtocol())
+                    && hostMatches(target.getHost(), approvedHost(sourceId))
+                    && (target.getPort() == -1 || target.getPort() == 443)
+                    && target.getUserInfo() == null;
+        } catch (Exception invalid) {
+            return false;
+        }
+    }
+
+    /**
+     * WebView owns each site's login session; native HttpURLConnection does not.
+     * Read cookies only for the vetted destination host and never send them to
+     * the Atlas backend or a different search source. HttpOnly values stay with
+     * Android's WebView CookieManager rather than app preferences.
+     */
+    private static void attachSiteCookies(HttpURLConnection connection, URL url) {
+        try {
+            String cookie = CookieManager.getInstance().getCookie(url.toString());
+            if (cookie != null && !cookie.isEmpty() && cookie.length() <= 8192) {
+                connection.setRequestProperty("Cookie", cookie);
+            }
+        } catch (Exception ignored) {
+            // No stored session is normal for public search.
+        }
+    }
+
     private static URL validated(String sourceId, String raw) throws Exception {
         String allowed = approvedHost(sourceId);
         URL url = new URL(raw);
@@ -134,6 +165,7 @@ final class OverlaySourceClient {
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36");
                 conn.setRequestProperty("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5");
                 conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.7");
+                attachSiteCookies(conn, target);
                 int status = conn.getResponseCode();
                 if (status >= 300 && status < 400) {
                     String location = conn.getHeaderField("Location");
@@ -346,6 +378,7 @@ final class OverlaySourceClient {
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(9000);
             conn.setInstanceFollowRedirects(false);
+            attachSiteCookies(conn, target);
             if (conn.getResponseCode() != 200) return null;
             String type = conn.getContentType();
             if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("image/")) return null;
