@@ -31,6 +31,8 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.text.Editable;
+import android.text.InputType;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -353,6 +355,58 @@ public class AtlasOverlayService extends Service {
         return button;
     }
 
+    /**
+     * Android floating windows may not show the stock EditText paste popup on
+     * certain ROMs. Paste explicitly into the focused EditText using the native
+     * clipboard, preserving selection and normal IME editing.
+     */
+    private void pasteFromClipboard() {
+        EditText target = searchInput;
+        if (target == null || panel == null) return;
+        try {
+            ClipboardManager clipboard =
+                    (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null || !clipboard.hasPrimaryClip()) {
+                Toast.makeText(this, "剪贴板为空，请先复制内容", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ClipData clip = clipboard.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) {
+                Toast.makeText(this, "剪贴板暂无可粘贴内容", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            CharSequence source = clip.getItemAt(0).coerceToText(this);
+            if (source == null || source.length() == 0) {
+                Toast.makeText(this, "剪贴板没有文本内容", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Search is single-line; avoid pasting huge content or line breaks.
+            String paste = source.toString().replaceAll("[\\r\\n\\t]+", " ").trim();
+            if (paste.isEmpty()) {
+                Toast.makeText(this, "剪贴板没有文本内容", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (paste.length() > 500) paste = paste.substring(0, 500);
+            Editable existing = target.getText();
+            int length = existing.length();
+            int cursorStart = target.getSelectionStart();
+            int cursorEnd = target.getSelectionEnd();
+            if (cursorStart < 0 || cursorEnd < 0) {
+                cursorStart = length;
+                cursorEnd = length;
+            }
+            int from = Math.max(0, Math.min(Math.min(cursorStart, cursorEnd), length));
+            int to = Math.max(from, Math.min(Math.max(cursorStart, cursorEnd), length));
+            existing.replace(from, to, paste);
+            target.setSelection(Math.min(existing.length(), from + paste.length()));
+            target.requestFocus();
+        } catch (SecurityException denied) {
+            Toast.makeText(this, "系统限制悬浮窗读取剪贴板，请在键盘中粘贴", Toast.LENGTH_LONG).show();
+        } catch (Exception problem) {
+            Toast.makeText(this, "粘贴失败，可尝试长按输入框或键盘的粘贴按钮", Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void openPanel() {
         if (panel != null || closing) return;
         if (bubble != null) bubble.setVisibility(View.GONE);
@@ -399,6 +453,10 @@ public class AtlasOverlayService extends Service {
         LinearLayout searchRow = horizontal();
         EditText input = new EditText(this);
         input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setLongClickable(true);
+        input.setCursorVisible(true);
+        input.setTextIsSelectable(false);
         input.setTextSize(14);
         input.setTextColor(Color.WHITE);
         input.setHintTextColor(Color.rgb(142, 146, 155));
@@ -409,9 +467,17 @@ public class AtlasOverlayService extends Service {
         input.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         searchInput = input;
         searchRow.addView(input, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button paste = action("粘贴");
+        paste.setContentDescription("粘贴剪贴板文本到搜索框");
+        paste.setTextColor(Color.rgb(235, 205, 167));
+        paste.setBackground(background(Color.rgb(53, 55, 64), 8, 0));
+        LinearLayout.LayoutParams pasteParams = new LinearLayout.LayoutParams(dp(49), dp(44));
+        pasteParams.leftMargin = dp(6);
+        searchRow.addView(paste, pasteParams);
+        paste.setOnClickListener(v -> pasteFromClipboard());
         Button search = action("搜索");
         LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(dp(67), dp(44));
-        btnParams.leftMargin = dp(8);
+        btnParams.leftMargin = dp(6);
         searchRow.addView(search, btnParams);
         search.setOnClickListener(v -> performSearch());
         input.setOnEditorActionListener((v, id, event) -> {
