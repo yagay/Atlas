@@ -195,13 +195,6 @@ export const AppShell: React.FC<AppShellProps> = ({ onSearchTabChange, children 
             active: pathname === '/main' && activeTab === tab.id,
             onClick: () => handleSearchTab(tab.id as SearchTabType),
           })),
-          {
-            id: 'sources',
-            label: t('tabs:sources.short'),
-            icon: <Globe className="h-[16px] w-[16px]" />,
-            active: pathname === '/main' && activeTab === 'sources',
-            onClick: () => handleSearchTab('sources'),
-          },
         ],
       },
       {
