@@ -9,6 +9,7 @@ export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }>
   const token = useAuthStore(state => state.token);
   const [enabled, setEnabled] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [opacity, setOpacity] = useState(100);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const pendingPermission = useRef(false);
@@ -36,6 +37,7 @@ export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }>
       if (!disposed) {
         setEnabled(result.running);
         setPermissionGranted(result.permissionGranted);
+        setOpacity(result.opacity ?? 100);
       }
     }).catch(() => undefined);
 
@@ -44,6 +46,7 @@ export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }>
         if (disposed) return;
         setEnabled(result.running);
         setPermissionGranted(result.permissionGranted);
+        setOpacity(result.opacity ?? 100);
         if (pendingPermission.current) {
           pendingPermission.current = false;
           if (result.permissionGranted) void enable();
@@ -98,6 +101,15 @@ export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }>
     }
   };
 
+  const saveOpacity = async () => {
+    try {
+      const result = await atlasOverlay.setOpacity(opacity);
+      setOpacity(result.opacity ?? opacity);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : '透明度保存失败');
+    }
+  };
+
   if (variant === 'settings') {
     return (
       <section className="rounded-2xl border border-surface-200 bg-white p-4 shadow-sm dark:border-surface-800 dark:bg-surface-900/70 sm:p-5">
@@ -144,6 +156,32 @@ export const OverlaySearchButton: React.FC<{ variant?: 'compact' | 'settings' }>
             前往系统设置并允许悬浮窗
           </button>
         )}
+        <div className="mt-4 border-t border-surface-100 pt-4 dark:border-surface-800">
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="overlay-window-opacity" className="text-sm font-medium text-surface-700 dark:text-surface-200">
+              悬浮窗口不透明度
+            </label>
+            <span className="text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400">{opacity}%</span>
+          </div>
+          <input
+            id="overlay-window-opacity"
+            aria-label="悬浮窗口不透明度"
+            type="range" min={50} max={100} step={5}
+            value={opacity}
+            onChange={event => setOpacity(Number(event.target.value))}
+            onPointerUp={() => void saveOpacity()}
+            onKeyUp={() => void saveOpacity()}
+            onBlur={() => void saveOpacity()}
+            className="mt-3 w-full accent-amber-500"
+          />
+          <div className="mt-1 flex justify-between text-xs text-surface-500">
+            <span>50% · 半透明</span>
+            <span>100% · 不透明</span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-surface-500">
+            只调节展开后的悬浮窗口。也可在悬浮窗标题栏点百分比按钮快速切换，数值自动保存。
+          </p>
+        </div>
         <p className="mt-3 text-xs leading-5 text-surface-500">
           首次启用需要在 Android 系统设置中允许「显示在其他应用上层」。关闭开关或退出登录后会停止悬浮服务。
         </p>
