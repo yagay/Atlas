@@ -1,0 +1,22 @@
+{
+  "appId": "uk.wort.javsearch",
+  "appName": "JAV Search",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#101114",
+    "allowMixedContent": false,
+    "appendUserAgent": "JavSearchStandalone/1.0"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#101114",
+      "overlaysWebView": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 700,
+      "backgroundColor": "#101114",
+      "showSpinner": false
+    }
+  }
+}
