@@ -77,7 +77,7 @@ if (!manifest.includes('android:scheme="atlas"')) {
 const javaRoot = path.join(mobileDir, 'android/app/src/main/java/uk/wort/atlas');
 const overlayJavaDir = path.join(javaRoot, 'overlay');
 fs.mkdirSync(overlayJavaDir, { recursive: true });
-for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java', 'AtlasSourceBrowserActivity.java', 'AtlasExternalActionReceiver.java']) {
+for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java', 'AtlasSourceBrowserActivity.java', 'AtlasExternalActionReceiver.java', 'AtlasSafeArea.java']) {
   fs.copyFileSync(path.join(mobileDir, 'native-overlay', file), path.join(overlayJavaDir, file));
 }
 const mainActivityFile = path.join(javaRoot, 'MainActivity.java');
@@ -90,6 +90,7 @@ if (!mainActivity.includes('registerPlugin(uk.wort.atlas.overlay.AtlasOverlayPlu
     public void onCreate(android.os.Bundle savedInstanceState) {
         registerPlugin(uk.wort.atlas.overlay.AtlasOverlayPlugin.class);
         super.onCreate(savedInstanceState);
+        uk.wort.atlas.overlay.AtlasSafeArea.install(this);
     }`
   );
 }
