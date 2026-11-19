@@ -191,24 +191,7 @@ export const UnifiedNavBar: React.FC<UnifiedNavBarProps> = memo(({
                       onClick={() => handleTabChange(tab.id)}
                     />
                   ))}
-                </nav>
-
-                {/* 独立"源站"入口：不属于 tablist，避免成为第六个 tab */}
-                <div className="mx-1 h-5 w-px bg-stone-200 dark:bg-stone-700" />
-                <button
-                  onClick={() => handleTabChange('sources')}
-                  title={t('tabs:sources.label')}
-                  className={clsx(
-                    'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-all duration-200',
-                    activeTab === 'sources'
-                      ? 'border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800'
-                  )}
-                >
-                  <span>{SEARCH_TABS.sources.icon}</span>
-                  <span className="hidden whitespace-nowrap xl:inline">{t('tabs:sources.short')}</span>
-                </button>
-              </div>
+                </nav>              </div>
               )}
             </div>
 
