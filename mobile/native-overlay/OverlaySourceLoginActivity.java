@@ -116,6 +116,9 @@ public class OverlaySourceLoginActivity extends Activity {
         settings.setSupportMultipleWindows(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setMediaPlaybackRequiresUserGesture(true);
+        // Store only a non-secret user agent. Site credentials stay with WebView.
+        getSharedPreferences("overlay_source_sessions", MODE_PRIVATE).edit()
+                .putString("ua_" + sourceId, settings.getUserAgentString()).apply();
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(browser, false);
 
