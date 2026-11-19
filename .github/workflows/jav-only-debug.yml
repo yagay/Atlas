@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/jav-only-debug.yml
       - mobile/capacitor.config.json
+      - mobile/scripts/prepare-android.mjs
+      - mobile/native-overlay/**
       - frontend/src/**
   workflow_dispatch:
 
