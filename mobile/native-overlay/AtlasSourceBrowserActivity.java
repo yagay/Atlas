@@ -37,6 +37,7 @@ public class AtlasSourceBrowserActivity extends Activity {
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, true,
                     this::finish);
             setContentView(viewer.getView());
+            AtlasSafeArea.install(this);
         } catch (Exception error) {
             Toast.makeText(this, "无法加载来源页面", Toast.LENGTH_LONG).show();
             finish();
