@@ -452,11 +452,11 @@ public class AtlasOverlayService extends Service {
 
         LinearLayout searchRow = horizontal();
         EditText input = new EditText(this);
+        // Keep standard selection/cut/copy/paste action mode and IME clipboard support.
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
         input.setSingleLine(true);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         input.setLongClickable(true);
         input.setCursorVisible(true);
-        input.setTextIsSelectable(false);
         input.setTextSize(14);
         input.setTextColor(Color.WHITE);
         input.setHintTextColor(Color.rgb(142, 146, 155));
