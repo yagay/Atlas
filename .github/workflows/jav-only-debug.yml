@@ -6,6 +6,8 @@ on:
       - feature/jav-only-search
     paths:
       - .github/workflows/jav-only-debug.yml
+      - mobile/capacitor.config.json
+      - frontend/src/**
   workflow_dispatch:
 
 permissions:
@@ -54,6 +56,11 @@ jobs:
       - name: Generate Android icons
         working-directory: mobile
         run: npx capacitor-assets generate --android
+
+      - name: Verify original Atlas package and local frontend
+        working-directory: mobile
+        run: |
+          node -e "const c = require('./capacitor.config.json'); if (c.appId !== 'uk.wort.atlas' || c.server?.url || c.webDir !== '../frontend/dist' || !c.plugins?.CapacitorHttp?.enabled) process.exit(1); console.log('Original Atlas app, bundled JAV-only UI, native HTTP bridge enabled')"
 
       - name: Sync frontend into Android
         working-directory: mobile
