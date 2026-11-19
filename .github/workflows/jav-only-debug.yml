@@ -15,6 +15,11 @@ on:
 permissions:
   contents: read
 
+# Skip obsolete Android builds after rapidly successive native-overlay changes.
+concurrency:
+  group: atlas-jav-debug-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android-debug:
     runs-on: ubuntu-latest
@@ -76,7 +81,17 @@ jobs:
         working-directory: mobile/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Gradle Debug failed after three attempts"
+              exit 1
+            fi
+            echo "Gradle dependency resolution may be temporarily unavailable; retrying ($attempt/3)"
+            sleep "$((attempt * 12))"
+          done
 
       - name: Collect debug APK
         run: |
