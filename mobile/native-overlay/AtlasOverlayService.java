@@ -72,6 +72,10 @@ public class AtlasOverlayService extends Service {
     private EditText searchInput;
     private LinearLayout results;
     private ScrollView resultScroll;
+    private LinearLayout panelRoot;
+    private LinearLayout modeControls;
+    private LinearLayout inputControls;
+    private OverlayWebPanel inlineBrowser;
     private TextView opacityLabel;
     private String currentMode = "code";
     private String token;
@@ -434,6 +438,7 @@ public class AtlasOverlayService extends Service {
         if (panel != null || closing) return;
         if (bubble != null) bubble.setVisibility(View.GONE);
         LinearLayout root = vertical();
+        panelRoot = root;
         root.setPadding(dp(10), dp(9), dp(10), dp(9));
         root.setBackground(background(Color.rgb(27, 29, 35), 16, Color.rgb(69, 69, 76)));
         root.setElevation(dp(14));
@@ -463,6 +468,7 @@ public class AtlasOverlayService extends Service {
         root.addView(title);
 
         LinearLayout modes = horizontal();
+        modeControls = modes;
         for (String[] choice : new String[][] {
                 {"code", "番号"}, {"actress", "演员"}, {"title", "标题"}
         }) {
@@ -474,6 +480,7 @@ public class AtlasOverlayService extends Service {
         root.addView(modes, itemParams(-1, dp(35), 7));
 
         LinearLayout searchRow = horizontal();
+        inputControls = searchRow;
         EditText input = new EditText(this);
         // Keep standard selection/cut/copy/paste action mode and IME clipboard support.
         input.setInputType(InputType.TYPE_CLASS_TEXT);
@@ -561,6 +568,9 @@ public class AtlasOverlayService extends Service {
         } catch (Exception ex) {
             panel = null;
             panelParams = null;
+            panelRoot = null;
+            modeControls = null;
+            inputControls = null;
             opacityLabel = null;
             resultScroll = null;
             if (bubble != null) bubble.setVisibility(View.VISIBLE);
@@ -570,6 +580,7 @@ public class AtlasOverlayService extends Service {
 
     private void closePanel() {
         searchGeneration++;
+        closeEmbeddedWeb();
         if (searchInput != null) {
             InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
@@ -580,6 +591,9 @@ public class AtlasOverlayService extends Service {
         }
         results = null;
         searchInput = null;
+        panelRoot = null;
+        modeControls = null;
+        inputControls = null;
         lastSearchData = null;
         currentSourceList = null;
         selectedSourceId = null;
@@ -617,6 +631,7 @@ public class AtlasOverlayService extends Service {
 
     private void performSearch() {
         if (searchInput == null || results == null) return;
+        closeEmbeddedWeb();
         String query = searchInput.getText().toString().trim();
         if (query.isEmpty()) {
             Toast.makeText(this, "请输入番号或关键词", Toast.LENGTH_SHORT).show();
@@ -824,7 +839,7 @@ public class AtlasOverlayService extends Service {
                 if (!url.startsWith("https://")) continue;
                 String sourceId = source.optString("id", "");
                 String sourceName = source.optString("name", "搜索源");
-                Button button = action(sourceName + (OverlaySourceClient.supported(sourceId) ? " · 查看内容" : " · 预览"));
+                Button button = action(sourceName + (OverlaySourceClient.supported(sourceId) ? " · 查看内容" : " · 内嵌网页"));
                 button.setTextColor(Color.rgb(228, 229, 233));
                 button.setBackground(background(Color.rgb(48, 50, 58), 8, 0));
                 button.setOnClickListener(v -> loadSourcePreview(sourceId, sourceName, url, false));
@@ -839,26 +854,86 @@ public class AtlasOverlayService extends Service {
         }
     }
 
+    /** Source login happens inside the same draggable floating window. */
     private void openSourceLogin(String sourceId, String name, String pageUrl) {
-        if (sourceLoginOpen || !OverlaySourceClient.isApprovedWebUrl(sourceId, pageUrl)) {
-            Toast.makeText(this, "此来源暂不支持内嵌登录", Toast.LENGTH_SHORT).show();
+        openEmbeddedSource(sourceId, name, pageUrl);
+    }
+
+    private void closeEmbeddedWeb() {
+        OverlayWebPanel current = inlineBrowser;
+        if (current == null) return;
+        inlineBrowser = null;
+        if (panelRoot != null) {
+            panelRoot.removeView(current.getView());
+        }
+        current.destroy();
+        if (modeControls != null) modeControls.setVisibility(View.VISIBLE);
+        if (inputControls != null) inputControls.setVisibility(View.VISIBLE);
+        if (resultScroll != null) resultScroll.setVisibility(View.VISIBLE);
+        if (panel != null) panel.post(this::keepPanelVisible);
+    }
+
+    /**
+     * Native browsing is the fallback for sources that require JavaScript,
+     * ordinary website sign-in, or have no available HTML parser. The view stays
+     * inside TYPE_APPLICATION_OVERLAY, not a separate Activity or full browser.
+     */
+    private void openEmbeddedSource(String sourceId, String name, String url) {
+        if (panelRoot == null || panel == null || url == null ||
+                !url.startsWith("https://")) {
+            Toast.makeText(this, "无法在悬浮窗内打开该网页", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (panel == null) return;
+        closeEmbeddedWeb();
+        searchGeneration++;
+        if (selectedSourceId == null || !selectedSourceId.equals(sourceId)) {
+            selectedSourceId = sourceId;
+            selectedSourceName = name;
+            selectedSourceUrl = url;
+        }
         try {
-            Intent signIn = new Intent(this, OverlaySourceLoginActivity.class);
-            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_ID, sourceId);
-            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_NAME, name);
-            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_URL, pageUrl);
-            signIn.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            sourceLoginOpen = true;
-            panel.setVisibility(View.GONE);
-            if (bubble != null) bubble.setVisibility(View.GONE);
-            startActivity(signIn);
-        } catch (Exception issue) {
-            sourceLoginOpen = false;
-            if (panel != null) panel.setVisibility(View.VISIBLE);
-            Toast.makeText(this, "无法启动站点登录页面", Toast.LENGTH_SHORT).show();
+            int availableHeight = Math.max(dp(220), safeBounds().height() - dp(105));
+            int webHeight = Math.min(dp(530), availableHeight);
+            OverlayWebPanel embedded = new OverlayWebPanel(
+                    this, sourceId, name, url, webHeight, new OverlayWebPanel.Actions() {
+                @Override public void returnToResults() {
+                    closeEmbeddedWeb();
+                    int request = ++searchGeneration;
+                    if (currentSourceList != null) {
+                        showSourcePreview(currentSourceList, selectedSourceId,
+                                selectedSourceName, selectedSourceUrl, false, request);
+                    } else if (lastSearchData != null) {
+                        showSearchResult(lastSearchData, request);
+                    } else if (results != null) {
+                        results.removeAllViews();
+                        addInfo("请重新搜索");
+                    }
+                }
+
+                @Override public void reparseAfterLogin() {
+                    closeEmbeddedWeb();
+                    if (OverlaySourceClient.supported(sourceId) &&
+                            selectedSourceUrl != null) {
+                        loadSourcePreview(sourceId, name, selectedSourceUrl, false);
+                    } else {
+                        Toast.makeText(AtlasOverlayService.this,
+                                "该来源尚无解析器，请继续使用内嵌网页",
+                                Toast.LENGTH_LONG).show();
+                        openEmbeddedSource(sourceId, name, url);
+                    }
+                }
+            });
+            inlineBrowser = embedded;
+            if (modeControls != null) modeControls.setVisibility(View.GONE);
+            if (inputControls != null) inputControls.setVisibility(View.GONE);
+            if (resultScroll != null) resultScroll.setVisibility(View.GONE);
+            panelRoot.addView(embedded.getView(),
+                    itemParams(LinearLayout.LayoutParams.MATCH_PARENT, webHeight, 4));
+            panel.post(this::keepPanelVisible);
+        } catch (Exception error) {
+            closeEmbeddedWeb();
+            Toast.makeText(this, "悬浮网页初始化失败，可使用外部浏览器",
+                    Toast.LENGTH_LONG).show();
         }
     }
 
@@ -896,10 +971,10 @@ public class AtlasOverlayService extends Service {
             signInParams.rightMargin = dp(5);
             bar.addView(signIn, signInParams);
         }
-        Button browser = action("网页 ↗");
+        Button browser = action("网页");
         browser.setTextColor(Color.rgb(231, 234, 239));
         browser.setBackground(background(Color.rgb(55, 59, 69), 8, 0));
-        browser.setOnClickListener(v -> openSourceWebsite(pageUrl));
+        browser.setOnClickListener(v -> openEmbeddedSource(selectedSourceId, sourceName, pageUrl));
         LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(69), dp(36));
         browseParams.leftMargin = dp(6);
         bar.addView(browser, browseParams);
@@ -943,8 +1018,7 @@ public class AtlasOverlayService extends Service {
         }
         addSourceToolbar(name, url, detail);
         if (!OverlaySourceClient.supported(sourceId)) {
-            addHeading("暂无该来源的解析器");
-            addInfo("这个搜索源目前只提供网址，无法安全地自动读取内容。可点击右上角「网页」继续查看。");
+            openEmbeddedSource(sourceId, name, url);
             return;
         }
         addInfo("正在抓取 " + name + " 的网页内容…");
@@ -960,14 +1034,10 @@ public class AtlasOverlayService extends Service {
                 String reason = err.getMessage();
                 ui.post(() -> {
                     if (request != searchGeneration || results == null || panel == null) return;
-                    results.removeAllViews();
-                    addSourceToolbar(name, url, detail);
-                    addHeading("无法在小窗中读取此来源");
-                    addInfo(reason == null ? "来源返回了无法解析的内容" : reason);
-                    addInfo("可以通过右上角「网页」查看；不影响其他来源或原有磁力结果。");
-                    Button retry = action("重新抓取");
-                    retry.setOnClickListener(v -> loadSourcePreview(sourceId, name, url, detail));
-                    results.addView(retry, itemParams(-1, dp(38), 8));
+                    Toast.makeText(AtlasOverlayService.this,
+                            "来源暂无法直接抓取，已在小窗内打开网页",
+                            Toast.LENGTH_SHORT).show();
+                    openEmbeddedSource(sourceId, name, url);
                 });
             }
         });
@@ -1091,7 +1161,10 @@ public class AtlasOverlayService extends Service {
         if ((items == null || items.length() == 0) &&
                 (preview.optJSONArray("magnets") == null ||
                         preview.optJSONArray("magnets").length() == 0)) {
-            addInfo("已读取到网页，但未提取出可用的作品卡片或磁力。可能是站点结构变化、需要登录，或内容由 JavaScript 动态加载。可使用「网页」查看原站。");
+            addInfo("网页已读取，但未提取到可用作品或磁力。可能需要登录或运行 JavaScript。");
+            Button embedded = action("在小窗中查看完整网页");
+            embedded.setOnClickListener(v -> openEmbeddedSource(sourceId, name, pageUrl));
+            results.addView(embedded, itemParams(-1, dp(39), 8));
         }
 
         String nextUrl = preview.optString("nextUrl", "");
