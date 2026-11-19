@@ -346,7 +346,7 @@ searchRoutes.get('/suggestions', async (c) => {
   }
 
   // ── Provider suggestions 模式 ───────────────────────────
-  if (source && source !== 'all') {
+  if (source) {
     const provider = providerRegistry.getByCategory(source);
     if (provider?.suggestions) {
       // ── suggestions 缓存 ───────────────────────────────
@@ -406,7 +406,7 @@ searchRoutes.get('/suggestions', async (c) => {
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
     // JAV 番号 WAAA-624 / WAAA624 等价：匹配历史时额外忽略横杠
-    const sourceProvider = source && source !== 'all' ? providerRegistry.getByCategory(source) : undefined;
+    const sourceProvider = providerRegistry.getByCategory(source);
     const compactPrefix = sourceProvider?.id === 'jav' && isClassicJavCodePrefix(trimmedKeyword)
       ? `${normalizeJavCode(trimmedKeyword).replace(/-/g, '')}%`
       : undefined;
@@ -459,7 +459,7 @@ searchRoutes.get('/trending', async (c) => {
   );
 
   // ── Provider trending 模式 ──────────────────────────────
-  if (source && source !== 'all') {
+  if (source) {
     const provider = providerRegistry.getByCategory(source);
     if (provider?.trending) {
       // ── trending 缓存 ─────────────────────────────────
