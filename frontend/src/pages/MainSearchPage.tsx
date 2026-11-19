@@ -9,7 +9,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { JavSubMode } from '@/types/source';
 import type { JavEnrichedData } from '@/types/search';
 import { JAV_SUB_MODES } from '@/types/source';
-import { SearchDock, SearchWorkspace } from '@/components/search';
+import { SearchDock, SearchWorkspace, SearchHistoryPanel } from '@/components/search';
 import { OverlaySearchButton } from '@/components/search/OverlaySearchButton';
 import { Panel } from '@/components/workbench';
 import { LanguageSwitcher } from '@/components/ui';
@@ -18,6 +18,9 @@ import { useCacheSync } from '@/hooks/useCacheSync';
 import { useFavoritesManager } from '@/hooks/useFavoritesManager';
 import { useJavSearchFlow } from '@/hooks/useJavSearchFlow';
 import { useSourceManager } from '@/hooks/useSourceManager';
+import { useSearchHistoryManager } from '@/hooks/useSearchHistoryManager';
+import type { SearchHistoryItem } from '@/types';
+import { isJavCodeLike } from '@codeseek/shared/utils';
 import { useRouteEnterAnimation } from '@/hooks/useRouteEnterAnimation';
 import { usePullToRefresh } from '@/components/layout/PullToRefresh';
 
@@ -31,6 +34,8 @@ export const MainSearchPage: React.FC = () => {
   const pageRef = useRouteEnterAnimation<HTMLDivElement>();
   const javFlow = useJavSearchFlow();
   const sourceManager = useSourceManager();
+  const historyManager = useSearchHistoryManager();
+  const [historyExpanded, setHistoryExpanded] = useState(true);
   const [javSubMode, setJavSubMode] = useState<JavSubMode>('code');
   const programmaticUrlRef = useRef(false);
 
@@ -49,6 +54,19 @@ export const MainSearchPage: React.FC = () => {
     onSearch: handleSearchUrlSync,
   });
   const favoritesManager = useFavoritesManager({ keyword: searchFlow.keyword });
+
+  const handleHistorySelect = (item: SearchHistoryItem) => {
+    const query = item.query?.trim();
+    if (!query) return;
+    // Older records do not carry JAV sub-mode. Prefer a known code, otherwise
+    // reuse the user's selected mode rather than inventing an actress/title type.
+    const mode: JavSubMode = item.code || isJavCodeLike(query) ? 'code' : javSubMode;
+    setJavSubMode(mode);
+    searchFlow.setKeyword(query);
+    setHistoryExpanded(false);
+    void searchFlow.handleSearch(query, 1, mode);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   usePullToRefresh(async () => {
     if (searchFlow.hasSearched && searchFlow.keyword.trim()) {
@@ -188,8 +206,13 @@ export const MainSearchPage: React.FC = () => {
             keyword={searchFlow.keyword}
             setKeyword={searchFlow.setKeyword}
             isSearching={searchFlow.isSearching}
-            onSubmit={() => searchFlow.handleSearch()}
-            onKeyDown={searchFlow.handleKeyDown}
+            onSubmit={() => { setHistoryExpanded(false); void searchFlow.handleSearch(); }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                setHistoryExpanded(false);
+              }
+              searchFlow.handleKeyDown(event);
+            }}
             suggestions={searchFlow.suggestions}
             isLoadingSuggestions={searchFlow.isLoadingSuggestions}
             showSuggestions={searchFlow.showSuggestions}
@@ -197,6 +220,23 @@ export const MainSearchPage: React.FC = () => {
             onCloseSuggestions={() => searchFlow.setShowSuggestions(false)}
             quotaRefreshKey={quotaRefreshKey}
             javFormatHintVisible={searchFlow.javFormatHintVisible}
+          />
+          <SearchHistoryPanel
+            history={historyManager.searchHistory}
+            total={historyManager.historyTotal}
+            page={historyManager.historyPageNo}
+            totalPages={historyManager.historyTotalPages}
+            onPageChange={historyManager.setHistoryPageNo}
+            isLoading={historyManager.isLoadingHistory}
+            show={historyExpanded}
+            onToggle={() => {
+              const next = !historyExpanded;
+              setHistoryExpanded(next);
+              if (next) void historyManager.refreshHistory();
+            }}
+            onItemSelect={handleHistorySelect}
+            onClear={historyManager.handleClearHistory}
+            onDeleteSelected={historyManager.handleDeleteSelected}
           />
           {searchFlow.hasSearched ? (
             <SearchWorkspace
