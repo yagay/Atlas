@@ -48,6 +48,7 @@ export function useSearchHistoryManager() {
     historyPageNo,
     setHistoryPageNo,
     isLoadingHistory,
+    refreshHistory: () => pageQuery.refetch(),
     handleClearHistory,
     handleDeleteSelected,
   };

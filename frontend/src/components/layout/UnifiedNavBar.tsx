@@ -192,22 +192,6 @@ export const UnifiedNavBar: React.FC<UnifiedNavBarProps> = memo(({
                     />
                   ))}
                 </nav>
-
-                {/* 独立"源站"入口：不属于 tablist，避免成为第六个 tab */}
-                <div className="mx-1 h-5 w-px bg-stone-200 dark:bg-stone-700" />
-                <button
-                  onClick={() => handleTabChange('sources')}
-                  title={t('tabs:sources.label')}
-                  className={clsx(
-                    'flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition-all duration-200',
-                    activeTab === 'sources'
-                      ? 'border-teal-300 bg-teal-50 text-teal-700 dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800'
-                  )}
-                >
-                  <span>{SEARCH_TABS.sources.icon}</span>
-                  <span className="hidden whitespace-nowrap xl:inline">{t('tabs:sources.short')}</span>
-                </button>
               </div>
               )}
             </div>
@@ -393,27 +377,7 @@ export const UnifiedNavBar: React.FC<UnifiedNavBarProps> = memo(({
               </button>
             </div>
             <div className="p-2">
-              <button
-                onClick={() => {
-                  setIsMoreOpen(false);
-                  handleTabChange('sources');
-                }}
-                className={clsx(
-                  'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors',
-                  activeTab === 'sources'
-                    ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
-                    : 'text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-stone-800'
-                )}
-              >
-                <span className="text-lg leading-none">{SEARCH_TABS.sources.icon}</span>
-                <span>{t('nav:mobileMore.sources')}</span>
-                {activeTab === 'sources' ? (
-                  <span className="ml-auto rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700 dark:bg-teal-800/50 dark:text-teal-300">
-                    {t('nav:mobileMore.active')}
-                  </span>
-                ) : null}
-              </button>
-              {/* 通知/主题/下载/语言常驻顶栏，抽屉内不再重复；主题/下载/代理按宽度只在“更多”出现一次 */}
+                            {/* 通知/主题/下载/语言常驻顶栏，抽屉内不再重复；主题/下载/代理按宽度只在“更多”出现一次 */}
               <button
                 onClick={() => {
                   setIsMoreOpen(false);

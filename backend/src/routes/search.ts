@@ -23,7 +23,6 @@ import {
   getNextTierProgress,
 } from '@/services/search-tier';
 import { providerRegistry, type SearchProvider } from '@/services/search-provider';
-import { setTmdbApiKey } from '@/providers/movie-provider';
 import { persistDataRecord } from '@/services/data-storage';
 import {
   listSourcesByCategory,
@@ -86,7 +85,11 @@ searchRoutes.post('/', validateBody(schemas.search.search), async (c) => {
   }
 
   const body = c.get('validatedBody') as z.infer<typeof schemas.search.search>;
-  const { keyword, page = 1, pageSize = 20, majorCategoryId, javSubMode } = body;
+  const { keyword, page = 1, pageSize = 20, javSubMode } = body;
+  const majorCategoryId = body.majorCategoryId || 'jav_sources';
+  if (majorCategoryId !== 'jav_sources') {
+    return c.json(error('UNSUPPORTED_CATEGORY', '当前版本仅支持 JAV 搜索'), 400);
+  }
 
   if (!keyword || !keyword.trim()) {
     return c.json(error('VALIDATION_ERROR', '搜索关键词不能为空'), 400);
@@ -168,8 +171,6 @@ searchRoutes.post('/', validateBody(schemas.search.search), async (c) => {
         }
 
         try {
-          // 注入 TMDB API Key（供 MovieProvider 的 suggestions/trending 使用）
-          setTmdbApiKey(c.env.TMDB_API_KEY ?? undefined);
 
           const enrichedData = (await provider.search(trimmedKeyword, limitPage, {
             db: c.env.DB,
@@ -333,7 +334,8 @@ searchRoutes.get('/suggestions', async (c) => {
   }
 
   const keyword = c.req.query('keyword');
-  const source = c.req.query('source');
+  const source = c.req.query('source') || 'jav_sources';
+  if (source !== 'jav_sources') return c.json(error('UNSUPPORTED_CATEGORY', '当前版本仅支持 JAV 搜索'), 400);
   const limit = Math.min(
     Math.max(1, parseInt(c.req.query('limit') || '10')),
     R.SUGGESTIONS.MAX_LIMIT
@@ -344,7 +346,7 @@ searchRoutes.get('/suggestions', async (c) => {
   }
 
   // ── Provider suggestions 模式 ───────────────────────────
-  if (source && source !== 'all') {
+  if (source) {
     const provider = providerRegistry.getByCategory(source);
     if (provider?.suggestions) {
       // ── suggestions 缓存 ───────────────────────────────
@@ -364,7 +366,6 @@ searchRoutes.get('/suggestions', async (c) => {
       }
 
       try {
-        setTmdbApiKey(c.env.TMDB_API_KEY ?? undefined);
         const items = await provider.suggestions(keyword);
         // 统一返回格式：{ keyword, count }
         const mapped = items.map(item => ({
@@ -405,7 +406,7 @@ searchRoutes.get('/suggestions', async (c) => {
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
     // JAV 番号 WAAA-624 / WAAA624 等价：匹配历史时额外忽略横杠
-    const sourceProvider = source && source !== 'all' ? providerRegistry.getByCategory(source) : undefined;
+    const sourceProvider = providerRegistry.getByCategory(source);
     const compactPrefix = sourceProvider?.id === 'jav' && isClassicJavCodePrefix(trimmedKeyword)
       ? `${normalizeJavCode(trimmedKeyword).replace(/-/g, '')}%`
       : undefined;
@@ -444,7 +445,8 @@ searchRoutes.get('/trending', async (c) => {
     return c.json(error('RATE_LIMITED', '请求过于频繁，请稍后再试'), 429);
   }
 
-  const source = c.req.query('source');
+  const source = c.req.query('source') || 'jav_sources';
+  if (source !== 'jav_sources') return c.json(error('UNSUPPORTED_CATEGORY', '当前版本仅支持 JAV 搜索'), 400);
   const hourInMs = 60 * 60 * 1000;
 
   const limit = Math.min(
@@ -457,7 +459,7 @@ searchRoutes.get('/trending', async (c) => {
   );
 
   // ── Provider trending 模式 ──────────────────────────────
-  if (source && source !== 'all') {
+  if (source) {
     const provider = providerRegistry.getByCategory(source);
     if (provider?.trending) {
       // ── trending 缓存 ─────────────────────────────────
@@ -478,7 +480,6 @@ searchRoutes.get('/trending', async (c) => {
       }
 
       try {
-        setTmdbApiKey(c.env.TMDB_API_KEY ?? undefined);
         const items = await provider.trending();
         // 统一返回格式：{ keyword, count }
         const mapped = items.map(item => ({

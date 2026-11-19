@@ -229,6 +229,8 @@
     /* 横屏 / 刘海屏：整体内容让出左右安全区，避免被圆角与刘海裁切 */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+    /* Keep the last search result reachable above 3-button navigation. */
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
 
   ::selection { background: rgba(212,168,83,0.22); color: inherit; }

@@ -68,3 +68,101 @@ if (!manifest.includes('android:scheme="atlas"')) {
   fs.writeFileSync(manifestPath, manifest);
   console.log('[android] injected atlas://auth/callback deep link');
 }
+
+
+/**
+ * Android 项目在每次 CI 中动态生成，原生悬浮服务与 Capacitor 插件
+ * 必须在 prepare-android 阶段注入，不能依赖被 gitignore 的 android/。
+ */
+const javaRoot = path.join(mobileDir, 'android/app/src/main/java/uk/wort/atlas');
+const overlayJavaDir = path.join(javaRoot, 'overlay');
+fs.mkdirSync(overlayJavaDir, { recursive: true });
+for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java', 'AtlasSourceBrowserActivity.java', 'AtlasExternalActionReceiver.java', 'AtlasSafeArea.java']) {
+  fs.copyFileSync(path.join(mobileDir, 'native-overlay', file), path.join(overlayJavaDir, file));
+}
+const mainActivityFile = path.join(javaRoot, 'MainActivity.java');
+let mainActivity = fs.readFileSync(mainActivityFile, 'utf8');
+if (!mainActivity.includes('registerPlugin(uk.wort.atlas.overlay.AtlasOverlayPlugin.class)')) {
+  mainActivity = mainActivity.replace(
+    /public class MainActivity extends BridgeActivity\s*\{/,
+    `public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(android.os.Bundle savedInstanceState) {
+        registerPlugin(uk.wort.atlas.overlay.AtlasOverlayPlugin.class);
+        super.onCreate(savedInstanceState);
+        uk.wort.atlas.overlay.AtlasSafeArea.install(this);
+    }`
+  );
+}
+if (!mainActivity.includes('registerPlugin(uk.wort.atlas.overlay.AtlasOverlayPlugin.class)')) {
+  throw new Error('Failed to register native AtlasOverlayPlugin in MainActivity');
+}
+fs.writeFileSync(mainActivityFile, mainActivity);
+
+let overlayManifest = fs.readFileSync(manifestPath, 'utf8');
+for (const permission of [
+  'android.permission.SYSTEM_ALERT_WINDOW',
+  'android.permission.FOREGROUND_SERVICE',
+  'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+]) {
+  if (!overlayManifest.includes(`android:name="${permission}"`)) {
+    overlayManifest = overlayManifest.replace(
+      '<application',
+      `<uses-permission android:name="${permission}" />\n    <application`
+    );
+  }
+}
+// Site sign-in is intentionally a non-exported Activity. It opens only when
+// the user taps "登录" on a known search source inside the floating overlay.
+// Both the full Atlas app and the floating panel use OverlayWebPanel.
+// The full-app host is non-exported and therefore accepts only our own links.
+if (!overlayManifest.includes('uk.wort.atlas.overlay.AtlasSourceBrowserActivity')) {
+  overlayManifest = overlayManifest.replace('</application>',
+    `        <activity
+            android:name="uk.wort.atlas.overlay.AtlasSourceBrowserActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
+    </application>`);
+}
+
+if (!overlayManifest.includes('uk.wort.atlas.overlay.OverlaySourceLoginActivity')) {
+  overlayManifest = overlayManifest.replace('</application>',
+    `        <activity
+            android:name="uk.wort.atlas.overlay.OverlaySourceLoginActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+    </application>`);
+}
+
+if (!overlayManifest.includes('uk.wort.atlas.overlay.AtlasExternalActionReceiver')) {
+  overlayManifest = overlayManifest.replace('</application>',
+    `        <receiver
+            android:name="uk.wort.atlas.overlay.AtlasExternalActionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="uk.wort.atlas.overlay.OPEN_PANEL" />
+            </intent-filter>
+        </receiver>
+    </application>`);
+}
+
+if (!overlayManifest.includes('uk.wort.atlas.overlay.AtlasOverlayService')) {
+  const service = `        <service
+            android:name="uk.wort.atlas.overlay.AtlasOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User initiated floating search bubble to show inline search results" />
+        </service>
+`;
+  overlayManifest = overlayManifest.replace('</application>', service + '    </application>');
+}
+if (!overlayManifest.includes('android.permission.SYSTEM_ALERT_WINDOW') ||
+    !overlayManifest.includes('android:foregroundServiceType="specialUse"')) {
+  throw new Error('Failed to register overlay permissions and foreground service');
+}
+fs.writeFileSync(manifestPath, overlayManifest);
+console.log('[android] Atlas native JAV overlay bridge, foreground service, and permissions installed');

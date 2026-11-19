@@ -1,64 +1,48 @@
 /**
- * 搜索结果主页（/main）：搜索顶栏、结果工作台与源看板。
- * 数据来源：搜索 / 建议 / JAV 详情各走对应 hook，收藏与历史走 react-query。
- * URL 契约：tab / q / sub 决定当前视图，刷新与前进后退都必须能恢复。
- * 断点策略：<lg 由 UnifiedNavBar + MobileTabBar 导航，≥lg 交给 AppShell 侧栏。
+ * Original Atlas JAV search workspace with all non-JAV navigation removed.
+ * Intentionally keeps useSearchFlow/useJavSearchFlow and existing result panels.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import clsx from 'clsx';
-import { Search, Sparkles, Tags, Trophy, Users } from 'lucide-react';
-import { useAuthStore, useSourceStore, useProxyStore } from '@/stores';
+import { Search, LogOut, Moon, Sun, Settings2 } from 'lucide-react';
+import { useAuthStore, useSourceStore, useProxyStore, useThemeStore } from '@/stores';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import type { SearchTabType, JavSubMode } from '@/types/source';
+import type { JavSubMode } from '@/types/source';
 import type { JavEnrichedData } from '@/types/search';
-import { TAB_IDS, JAV_SUB_MODES } from '@/types/source';
-import {
-  AnnouncementBar,
-  SearchDock,
-  SearchWorkspace,
-  SourceBoard,
-} from '@/components/search';
-import { UnifiedNavBar } from '@/components/layout';
-import { AppShell } from '@/components/layout/AppShell';
-import { Panel, PanelSection, EmptyBlock } from '@/components/workbench';
-import { MobileIdleHome } from '@/components/home-mobile';
-import type { DiscoverSection } from '@/components/home-mobile';
-import { useIsDesktop } from '@/hooks';
+import { JAV_SUB_MODES } from '@/types/source';
+import { SearchDock, SearchWorkspace, SearchHistoryPanel } from '@/components/search';
+import { OverlaySearchButton } from '@/components/search/OverlaySearchButton';
+import { Panel } from '@/components/workbench';
+import { LanguageSwitcher } from '@/components/ui';
 import { useSearchFlow } from '@/hooks/useSearchFlow';
 import { useCacheSync } from '@/hooks/useCacheSync';
 import { useFavoritesManager } from '@/hooks/useFavoritesManager';
-import { useSearchHistoryManager } from '@/hooks/useSearchHistoryManager';
 import { useJavSearchFlow } from '@/hooks/useJavSearchFlow';
 import { useSourceManager } from '@/hooks/useSourceManager';
-import { FeedbackButton } from '@/components/feedback';
-import { SEARCH_TABS } from '@/config/tabs';
-import { useTranslation } from 'react-i18next';
+import { useSearchHistoryManager } from '@/hooks/useSearchHistoryManager';
+import type { SearchHistoryItem } from '@/types';
+import { isJavCodeLike } from '@codeseek/shared/utils';
 import { useRouteEnterAnimation } from '@/hooks/useRouteEnterAnimation';
 import { usePullToRefresh } from '@/components/layout/PullToRefresh';
 
-/** 搜索主页；自身不请求数据，只编排各类 hook 与结果视图。 */
 export const MainSearchPage: React.FC = () => {
-  const { t } = useTranslation(['tabs', 'home', 'search']);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const { activeTab, setActiveTab } = useSourceStore();
   const { isEnabled: isProxyEnabled, initializeProxy } = useProxyStore();
-  const isDesktop = useIsDesktop();
+  const { resolvedTheme, toggleTheme } = useThemeStore();
   const pageRef = useRouteEnterAnimation<HTMLDivElement>();
-
   const javFlow = useJavSearchFlow();
   const sourceManager = useSourceManager();
+  const historyManager = useSearchHistoryManager();
+  const [historyExpanded, setHistoryExpanded] = useState(true);
   const [javSubMode, setJavSubMode] = useState<JavSubMode>('code');
-
-  // ── URL 同步 ─────────────────────────────
   const programmaticUrlRef = useRef(false);
+
   const handleSearchUrlSync = useCallback((keyword: string, subMode?: JavSubMode) => {
     programmaticUrlRef.current = true;
-    const params: Record<string, string> = { tab: activeTab, q: keyword };
-    if (activeTab === 'jav') params.sub = subMode ?? javSubMode;
-    setSearchParams(params, { replace: true });
-  }, [setSearchParams, activeTab, javSubMode]);
+    setSearchParams({ tab: 'jav', q: keyword, sub: subMode ?? javSubMode }, { replace: true });
+  }, [setSearchParams, javSubMode]);
 
   const searchFlow = useSearchFlow({
     activeTab,
@@ -69,9 +53,20 @@ export const MainSearchPage: React.FC = () => {
     javSubMode,
     onSearch: handleSearchUrlSync,
   });
-
   const favoritesManager = useFavoritesManager({ keyword: searchFlow.keyword });
-  const historyManager = useSearchHistoryManager();
+
+  const handleHistorySelect = (item: SearchHistoryItem) => {
+    const query = item.query?.trim();
+    if (!query) return;
+    // Older records do not carry JAV sub-mode. Prefer a known code, otherwise
+    // reuse the user's selected mode rather than inventing an actress/title type.
+    const mode: JavSubMode = item.code || isJavCodeLike(query) ? 'code' : javSubMode;
+    setJavSubMode(mode);
+    searchFlow.setKeyword(query);
+    setHistoryExpanded(false);
+    void searchFlow.handleSearch(query, 1, mode);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   usePullToRefresh(async () => {
     if (searchFlow.hasSearched && searchFlow.keyword.trim()) {
@@ -80,7 +75,7 @@ export const MainSearchPage: React.FC = () => {
   });
 
   const javEnrichedData = searchFlow.enrichedData?.resultType === 'jav'
-    ? (searchFlow.enrichedData as JavEnrichedData)
+    ? searchFlow.enrichedData as JavEnrichedData
     : null;
   const javRelatedSeed = javEnrichedData
     ? javEnrichedData.detail
@@ -97,74 +92,49 @@ export const MainSearchPage: React.FC = () => {
   const javExcludeCodes = javEnrichedData
     ? [
         ...(javEnrichedData.detail ? [javEnrichedData.detail.code] : []),
-        ...((javEnrichedData.actressWorks || []).map((work) => work.code)),
+        ...(javEnrichedData.actressWorks || []).map(work => work.code),
       ]
     : [];
 
-  // 搜索结束后刷新配额展示（isSearching 由 true 落回 false 视为一次搜索完成）
   const [quotaRefreshKey, setQuotaRefreshKey] = useState(0);
   const wasSearchingRef = useRef(false);
   useEffect(() => {
     if (wasSearchingRef.current && !searchFlow.isSearching) {
-      setQuotaRefreshKey((key) => key + 1);
+      setQuotaRefreshKey(key => key + 1);
     }
     wasSearchingRef.current = searchFlow.isSearching;
   }, [searchFlow.isSearching]);
 
-  // ── URL 初始化与前进后退恢复 ─────────────────────────────
-  // 先同步 tab，再发搜索：直链/刷新时 handleSearch 闭包里的 activeTab 还是上一次的值
   useEffect(() => {
-    const qParam = searchParams.get('q');
-    const tabParam = searchParams.get('tab');
-    const subParam = searchParams.get('sub');
-
-    // 兼容旧链接：?tab=community 直接跳转社区页
-    if (tabParam === 'community') {
-      navigate('/community', { replace: true });
+    const query = searchParams.get('q');
+    const tab = searchParams.get('tab');
+    const sub = searchParams.get('sub');
+    if (tab && tab !== 'jav') {
+      const params = new URLSearchParams(searchParams);
+      params.set('tab', 'jav');
+      setActiveTab('jav');
+      setSearchParams(params, { replace: true });
       return;
     }
-
-    const nextTab = tabParam && TAB_IDS.includes(tabParam as SearchTabType)
-      ? (tabParam as SearchTabType)
-      : null;
-
-    if (nextTab && nextTab !== activeTab) {
-      setActiveTab(nextTab);
-      if (qParam) return; // 等 activeTab 更新后本 effect 会再次执行
+    if (activeTab !== 'jav') {
+      setActiveTab('jav');
+      return;
     }
-
-    let overrideSubMode: JavSubMode | undefined;
-    if (subParam && JAV_SUB_MODES.includes(subParam as JavSubMode)) {
-      overrideSubMode = subParam as JavSubMode;
-      if (overrideSubMode !== javSubMode) setJavSubMode(overrideSubMode);
+    let override: JavSubMode | undefined;
+    if (sub && JAV_SUB_MODES.includes(sub as JavSubMode)) {
+      override = sub as JavSubMode;
+      if (override !== javSubMode) setJavSubMode(override);
     }
-
-    const isProgrammatic = programmaticUrlRef.current;
-    if (isProgrammatic) programmaticUrlRef.current = false;
-    if (!qParam || isProgrammatic) return;
-
-    searchFlow.setKeyword(qParam);
-    searchFlow.handleSearch(qParam, 1, overrideSubMode);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const programmatic = programmaticUrlRef.current;
+    if (programmatic) programmaticUrlRef.current = false;
+    if (!query || programmatic) return;
+    searchFlow.setKeyword(query);
+    searchFlow.handleSearch(query, 1, override);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, activeTab]);
 
   useEffect(() => { initializeProxy(); }, [initializeProxy]);
   useCacheSync();
-
-  // ── Tab 切换 ─────────────────────────────
-  const handleTabChange = useCallback((tab: SearchTabType) => {
-    if (tab === 'community') { navigate('/community'); return; }
-    setActiveTab(tab);
-    const params: Record<string, string> = { tab };
-    if (searchFlow.keyword.trim()) params.q = searchFlow.keyword.trim();
-    if (tab === 'jav') params.sub = javSubMode;
-    programmaticUrlRef.current = true;
-    setSearchParams(params, { replace: true });
-    searchFlow.resetResults();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setActiveTab, setSearchParams, navigate, searchFlow.keyword, searchFlow.resetResults, javSubMode]);
-
-  const isAdmin = isAuthenticated && user != null && (user.role === 'admin' || user.role === 'super_admin');
 
   const handleActressWorkClick = (code: string) => {
     setJavSubMode('code');
@@ -194,71 +164,83 @@ export const MainSearchPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchFlow.resetResults]);
 
-  // 完整列表统一放在独立页面，首页只保留入口
-  const handleOpenDiscover = useCallback((section: DiscoverSection) => {
-    navigate(`/discover/${section}`);
-  }, [navigate]);
-
-  // 记录进入源看板前的搜索 Tab，供"返回搜索"回退（深链默认 jav）
-  const lastSearchTabRef = useRef<SearchTabType>('jav');
-  useEffect(() => {
-    if (activeTab !== 'sources' && activeTab !== 'community') {
-      lastSearchTabRef.current = activeTab;
-    }
-  }, [activeTab]);
-  const handleBackToSearch = useCallback(() => {
-    handleTabChange(lastSearchTabRef.current);
-  }, [handleTabChange]);
-
-  const showIdleHint = activeTab !== 'jav'
-    && activeTab !== 'sources'
-    && (!isAuthenticated || historyManager.searchHistory.length === 0);
-
   return (
-    <AppShell onSearchTabChange={handleTabChange}>
-    <div ref={pageRef} className={clsx('page-bg', !isDesktop && 'min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0')}>
-      {!isDesktop ? (
-        <UnifiedNavBar activeTab={activeTab} onTabChange={handleTabChange} isAuthenticated={isAuthenticated} user={user} isAdmin={isAdmin} />
-      ) : null}
-
-      <main className="mx-auto w-full max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-        <header className="mb-4 sm:mb-5">
-          <h1 className="type-page-title text-heading">
-            {t('home:javSubmode.greeting')}，<span className="bg-gradient-to-r from-primary-600 to-accent-600 bg-clip-text text-transparent">
-              {isAuthenticated ? user?.username : t('home:javSubmode.guest')}
-            </span> 👋
-          </h1>
-          <p className="type-meta mt-1">{t(SEARCH_TABS[activeTab].descriptionKey)}</p>
-        </header>
-
+    <div ref={pageRef} className="page-bg min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-surface-200/80 bg-white/95 px-4 py-3 backdrop-blur dark:border-surface-800/80 dark:bg-surface-950/95">
+        <div className="mx-auto flex w-full max-w-[1000px] items-center justify-between gap-3">
+          <button type="button" onClick={() => { searchFlow.resetResults(); navigate('/main?tab=jav'); }}
+            className="flex items-center gap-2 text-base font-bold text-heading" aria-label="JAV 搜索首页">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500 text-white">
+              <Search className="h-5 w-5" />
+            </span>
+            <span className="hidden min-[390px]:inline">Atlas · </span><span>JAV 搜索</span>
+          </button>
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <OverlaySearchButton />
+            <button type="button" onClick={() => navigate('/settings')} aria-label="打开设置" title="设置"
+              className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
+              <Settings2 className="h-[18px] w-[18px]" />
+            </button>
+            <LanguageSwitcher />
+            <button type="button" onClick={toggleTheme} aria-label="切换主题" title="切换主题"
+              className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
+              {resolvedTheme === 'dark' ? <Sun className="h-[18px] w-[18px]"/> : <Moon className="h-[18px] w-[18px]"/>}
+            </button>
+            <button type="button" onClick={() => logout()} aria-label="退出登录" title="退出登录"
+              className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
+              <LogOut className="h-[18px] w-[18px]"/>
+            </button>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto w-full max-w-[1000px] px-3 py-5 sm:px-6">
+        <div className="mb-4">
+          <h1 className="type-page-title text-heading">JAV 番号搜索</h1>
+          <p className="type-meta mt-1">按番号、演员或标题查询作品、封面、详情与磁力链接</p>
+        </div>
         <Panel>
-          <AnnouncementBar />
-
-          {activeTab !== 'sources' ? (
-            <SearchDock
-              activeTab={activeTab}
-              javSubMode={javSubMode}
-              onSubModeChange={handleSubModeChange}
-              keyword={searchFlow.keyword}
-              setKeyword={searchFlow.setKeyword}
-              isSearching={searchFlow.isSearching}
-              onSubmit={() => searchFlow.handleSearch()}
-              onKeyDown={searchFlow.handleKeyDown}
-              suggestions={searchFlow.suggestions}
-              isLoadingSuggestions={searchFlow.isLoadingSuggestions}
-              showSuggestions={searchFlow.showSuggestions}
-              onSuggestionSelect={searchFlow.handleSuggestionSelect}
-              onCloseSuggestions={() => searchFlow.setShowSuggestions(false)}
-              quotaRefreshKey={quotaRefreshKey}
-              javFormatHintVisible={searchFlow.javFormatHintVisible}
-            />
-          ) : null}
-
-          {activeTab === 'sources' ? (
-            <SourceBoard onBackToSearch={handleBackToSearch} />
-          ) : searchFlow.hasSearched ? (
+          <SearchDock
+            activeTab="jav"
+            javSubMode={javSubMode}
+            onSubModeChange={handleSubModeChange}
+            keyword={searchFlow.keyword}
+            setKeyword={searchFlow.setKeyword}
+            isSearching={searchFlow.isSearching}
+            onSubmit={() => { setHistoryExpanded(false); void searchFlow.handleSearch(); }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                setHistoryExpanded(false);
+              }
+              searchFlow.handleKeyDown(event);
+            }}
+            suggestions={searchFlow.suggestions}
+            isLoadingSuggestions={searchFlow.isLoadingSuggestions}
+            showSuggestions={searchFlow.showSuggestions}
+            onSuggestionSelect={searchFlow.handleSuggestionSelect}
+            onCloseSuggestions={() => searchFlow.setShowSuggestions(false)}
+            quotaRefreshKey={quotaRefreshKey}
+            javFormatHintVisible={searchFlow.javFormatHintVisible}
+          />
+          <SearchHistoryPanel
+            history={historyManager.searchHistory}
+            total={historyManager.historyTotal}
+            page={historyManager.historyPageNo}
+            totalPages={historyManager.historyTotalPages}
+            onPageChange={historyManager.setHistoryPageNo}
+            isLoading={historyManager.isLoadingHistory}
+            show={historyExpanded}
+            onToggle={() => {
+              const next = !historyExpanded;
+              setHistoryExpanded(next);
+              if (next) void historyManager.refreshHistory();
+            }}
+            onItemSelect={handleHistorySelect}
+            onClear={historyManager.handleClearHistory}
+            onDeleteSelected={historyManager.handleDeleteSelected}
+          />
+          {searchFlow.hasSearched ? (
             <SearchWorkspace
-              activeTab={activeTab}
+              activeTab="jav"
               javSubMode={javSubMode}
               searchFlow={searchFlow}
               javFlow={javFlow}
@@ -274,59 +256,15 @@ export const MainSearchPage: React.FC = () => {
               javExcludeCodes={javExcludeCodes}
             />
           ) : (
-            <div className="border-t border-surface-100 dark:border-surface-800/70">
-              {activeTab === 'jav' ? (
-                isDesktop ? (
-                  <div className="px-4 py-6 sm:px-5">
-                    <p className="type-meta mb-3">{t('home:mobileHome.desktopHint')}</p>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                      {([
-                        ['recommend', Sparkles],
-                        ['rankings', Trophy],
-                        ['top250', Trophy],
-                        ['genres', Tags],
-                        ['actresses', Users],
-                      ] as const).map(([key, Icon]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleOpenDiscover(key)}
-                          className="flex flex-col items-start gap-2 rounded-xl border border-surface-200/80 bg-white px-3 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary-300 dark:border-surface-800/80 dark:bg-surface-900/40 dark:hover:border-primary-700"
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-300">
-                            <Icon className="h-4 w-4" />
-                          </span>
-                          <span className="text-xs font-semibold text-surface-700 dark:text-surface-300">
-                            {t(`home:mobileHome.discoverPage.sections.${key}`)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <MobileIdleHome
-                    onOpenDiscover={handleOpenDiscover}
-                    favoritesTotal={favoritesManager.favoritesTotal}
-                    historyTotal={historyManager.historyTotal}
-                  />
-                )
-              ) : showIdleHint ? (
-                <PanelSection className="p-4 sm:p-5">
-                  <EmptyBlock
-                    icon={<Search className="h-8 w-8" />}
-                    title={t(SEARCH_TABS[activeTab].placeholderKey)}
-                    hint={t(SEARCH_TABS[activeTab].descriptionKey)}
-                    className="bg-transparent"
-                  />
-                </PanelSection>
-              ) : null}
+            <div className="flex flex-col items-center justify-center gap-2 border-t border-surface-100 px-4 py-10 text-center dark:border-surface-800/70">
+              <Search className="h-9 w-9 text-surface-400" />
+              <p className="text-sm font-semibold text-heading">输入番号开始搜索</p>
+              <p className="type-meta">保留 Atlas 原有 JAV 数据源、作品详情、演员搜索和磁力结果</p>
+              {user?.username ? <p className="type-micro text-surface-500">已登录：{user.username}</p> : null}
             </div>
           )}
         </Panel>
       </main>
-
-      <FeedbackButton />
     </div>
-    </AppShell>
   );
 };

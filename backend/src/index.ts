@@ -16,11 +16,7 @@ import { CONFIG } from '@/constants';
 import { generateErrorFingerprint } from '@/utils/fingerprint';
 // 注册搜索 Provider
 import { providerRegistry } from '@/services/search-provider';
-import { animeProvider } from '@/providers/anime-provider';
-import { movieProvider } from '@/providers/movie-provider';
 import { javProvider } from '@/providers/jav-provider';
-import { mangaProvider } from '@/providers/manga-provider';
-import { novelProvider } from '@/providers/novel-provider';
 import { enrichPendingJavRecords } from '@/services/ranking-enrichment';
 import { runJavDetailJobBatch } from '@/services/jav-detail-job';
 import { gcOrphanCoverAssets, runCoverBackfillBatch } from '@/services/cover-backfill';
@@ -38,13 +34,9 @@ const HALF_HOUR_LOCK_TTL_MS = 25 * 60_000;
 /** 1 小时一轮的任务：租约 50 分钟 */
 const HOURLY_LOCK_TTL_MS = 50 * 60_000;
 
-// 新增搜索类别只需实现 SearchProvider 并在此注册，不要在 routes/search.ts 里加分支
+// JAV 专用版本：只注册 JAV Provider；其他 Provider 源文件暂时保留，便于回溯
 // ── 搜索 Provider 注册 ───────────────────────────────────
-providerRegistry.register(animeProvider);
-providerRegistry.register(movieProvider);
 providerRegistry.register(javProvider);
-providerRegistry.register(mangaProvider);
-providerRegistry.register(novelProvider);
 
 const app = new Hono<{ Bindings: Env }>();
 

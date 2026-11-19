@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { SourceIcon } from '@/components/ui';
 import { PanelSection, PanelHeader, ResourceRow, Chip, CountBadge, IconAction } from '@/components/workbench';
 import { convertToProxyUrl } from '@/services/proxy';
+import { atlasOverlay } from '@/services/atlasOverlay';
 import type { SearchResult, FavoriteRef, Category, MajorCategory } from '@/types';
 
 interface SearchResultItem extends SearchResult {
@@ -55,6 +56,24 @@ export const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
       reference: t('search:results.siteTypeReference'),
     };
     return map[siteType || 'search'] ?? map.search;
+  };
+
+  const openSource = (result: SearchResultItem) => {
+    if (!result.url) return;
+    if (atlasOverlay.available()) {
+      // Main app and floating search now share OverlayWebPanel and its cookies.
+      void atlasOverlay.openSource({
+        sourceId: result.sourceId || '',
+        sourceName: result.sourceName || '搜索源',
+        url: result.url,
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : '无法打开站内来源浏览器';
+        window.alert(message);
+      });
+      return;
+    }
+    // Browser/desktop builds cannot host Android's native WebView.
+    window.open(isProxyEnabled ? convertToProxyUrl(result.url) : result.url, '_blank', 'noopener,noreferrer');
   };
 
   if (results.length === 0) return null;
@@ -112,14 +131,14 @@ export const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({
                   {result.url ? (
                     <button
                       type="button"
-                      onClick={() => window.open(isProxyEnabled ? convertToProxyUrl(result.url) : result.url, '_blank')}
+                      onClick={() => openSource(result)}
                       className={`flex h-8 items-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold text-white ${
                         isProxyEnabled
                           ? 'bg-success-600 hover:bg-success-700'
                           : 'bg-primary-500 hover:bg-primary-600'
                       }`}
                     >
-                      <span className="hidden sm:inline">{t('search:results.go')}</span>
+                      <span className="hidden sm:inline">{atlasOverlay.available() ? '站内查看' : t('search:results.go')}</span>
                       <ExternalLink className="h-3 w-3" />
                     </button>
                   ) : null}

@@ -1,0 +1,108 @@
+name: Build JAV-only Android Debug
+
+on:
+  push:
+    branches:
+      - feature/jav-only-search
+    paths:
+      - .github/workflows/jav-only-debug.yml
+      - mobile/capacitor.config.json
+      - mobile/scripts/prepare-android.mjs
+      - mobile/native-overlay/**
+      - frontend/src/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Skip obsolete Android builds after rapidly successive native-overlay changes.
+concurrency:
+  group: atlas-jav-debug-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    name: Build Android Debug APK
+    steps:
+      - name: Checkout JAV-only branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Create Android project
+        working-directory: mobile
+        run: npx cap add android
+
+      - name: Generate Android icons
+        working-directory: mobile
+        run: npx capacitor-assets generate --android
+
+      - name: Verify original Atlas package and local frontend
+        working-directory: mobile
+        run: |
+          node -e "const c = require('./capacitor.config.json'); if (c.appId !== 'uk.wort.atlas' || c.server?.url || c.webDir !== '../frontend/dist' || !c.plugins?.CapacitorHttp?.enabled) process.exit(1); console.log('Original Atlas app, bundled JAV-only UI, native HTTP bridge enabled')"
+
+      - name: Sync frontend into Android
+        working-directory: mobile
+        run: npx cap sync android
+
+      - name: Prepare Android project (debug only)
+        working-directory: mobile
+        run: node scripts/prepare-android.mjs
+
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          for attempt in 1 2 3; do
+            if ./gradlew assembleDebug --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Gradle Debug failed after three attempts"
+              exit 1
+            fi
+            echo "Gradle dependency resolution may be temporarily unavailable; retrying ($attempt/3)"
+            sleep "$((attempt * 12))"
+          done
+
+      - name: Collect debug APK
+        run: |
+          mkdir -p build-output
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk build-output/Atlas-JAV-debug.apk
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Atlas-JAV-Android-Debug
+          path: build-output/Atlas-JAV-debug.apk
+          if-no-files-found: error
+          retention-days: 14

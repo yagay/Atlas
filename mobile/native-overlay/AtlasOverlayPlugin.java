@@ -1,0 +1,136 @@
+package uk.wort.atlas.overlay;
+
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
+
+import androidx.core.content.ContextCompat;
+
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+/** Bridge between original Atlas login state and its native overlay service. */
+@CapacitorPlugin(name = "AtlasOverlay")
+public class AtlasOverlayPlugin extends Plugin {
+    private JSObject state() {
+        JSObject data = new JSObject();
+        data.put("supported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
+        data.put("permissionGranted", Settings.canDrawOverlays(getContext()));
+        data.put("running", AtlasOverlayService.isRunning());
+        int opacity = getContext().getSharedPreferences("overlay_window", android.content.Context.MODE_PRIVATE)
+                .getInt("opacity", 100);
+        data.put("opacity", Math.max(50, Math.min(100, opacity)));
+        return data;
+    }
+
+    @PluginMethod
+    public void status(PluginCall call) {
+        call.resolve(state());
+    }
+
+    @PluginMethod
+    public void requestPermission(PluginCall call) {
+        if (Settings.canDrawOverlays(getContext())) {
+            call.resolve(state());
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve(state());
+        } catch (Exception error) {
+            call.reject("无法打开悬浮窗权限设置", error);
+        }
+    }
+
+    @PluginMethod
+    public void start(PluginCall call) {
+        if (!Settings.canDrawOverlays(getContext())) {
+            call.reject("请先允许 Atlas 显示在其他应用上层", "OVERLAY_PERMISSION_REQUIRED");
+            return;
+        }
+        String token = call.getString("token");
+        if (token == null || token.trim().length() < 16) {
+            call.reject("请先登录 Atlas 再开启悬浮搜索");
+            return;
+        }
+        try {
+            Intent service = new Intent(getContext(), AtlasOverlayService.class);
+            service.setAction(AtlasOverlayService.ACTION_START);
+            service.putExtra(AtlasOverlayService.EXTRA_TOKEN, token);
+            ContextCompat.startForegroundService(getContext(), service);
+            call.resolve(state());
+        } catch (Exception error) {
+            call.reject("无法启动悬浮搜索服务", error);
+        }
+    }
+
+    @PluginMethod
+    public void setOpacity(PluginCall call) {
+        Integer requested = call.getInt("opacity");
+        if (requested == null) {
+            call.reject("缺少透明度参数");
+            return;
+        }
+        int value = Math.max(50, Math.min(100, requested));
+        getContext().getSharedPreferences("overlay_window", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("opacity", value).apply();
+        if (AtlasOverlayService.isRunning()) {
+            Intent action = new Intent(getContext(), AtlasOverlayService.class);
+            action.setAction(AtlasOverlayService.ACTION_SET_OPACITY);
+            action.putExtra(AtlasOverlayService.EXTRA_OPACITY, value);
+            try {
+                getContext().startService(action);
+            } catch (Exception error) {
+                call.reject("更新悬浮窗透明度失败", error);
+                return;
+            }
+        }
+        call.resolve(state());
+    }
+
+    /**
+     * Main App's source cards open the same native viewer the floating window
+     * uses. No overlay permission or separate website session is needed.
+     */
+    @PluginMethod
+    public void openSource(PluginCall call) {
+        String sourceId = call.getString("sourceId", "");
+        String sourceName = call.getString("sourceName", "搜索源");
+        String url = call.getString("url");
+        if (!OverlayWebPanel.isSafeInitialUrl(url) ||
+                (OverlaySourceClient.supported(sourceId) &&
+                 !OverlaySourceClient.isApprovedWebUrl(sourceId, url))) {
+            call.reject("来源地址不受支持，仅允许对应站点的 HTTPS 网页");
+            return;
+        }
+        try {
+            Intent viewer = new Intent(getContext(), AtlasSourceBrowserActivity.class);
+            viewer.putExtra("sourceId", sourceId);
+            viewer.putExtra("sourceName", sourceName);
+            viewer.putExtra("url", url);
+            getActivity().startActivity(viewer);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("无法在 Atlas 中打开来源页面", error);
+        }
+    }
+
+    @PluginMethod
+    public void stop(PluginCall call) {
+        Intent service = new Intent(getContext(), AtlasOverlayService.class);
+        service.setAction(AtlasOverlayService.ACTION_STOP);
+        try {
+            getContext().startService(service);
+            call.resolve(state());
+        } catch (Exception error) {
+            call.reject("无法停止悬浮窗", error);
+        }
+    }
+}
