@@ -43,7 +43,9 @@ export function useSearchHistoryPage(page: number, pageSize = SEARCH_HISTORY_PAG
       return response.data;
     },
     enabled: isAuthenticated && !!userId,
-    staleTime: persist ? HISTORY_CACHE_TTL : 60 * 1000,
+    staleTime: persist ? 30 * 1000 : 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
     placeholderData: keepPreviousData,
     initialData: persist ? () => readPersisted<SearchHistoryPageData>(cacheKey, HISTORY_CACHE_TTL)?.data : undefined,
     initialDataUpdatedAt: persist ? () => readPersisted<SearchHistoryPageData>(cacheKey, HISTORY_CACHE_TTL)?.cachedAt : undefined,
@@ -81,7 +83,9 @@ export function useSearchHistory(limit = 20) {
       return response.data.history;
     },
     enabled: isAuthenticated && !!userId,
-    staleTime: HISTORY_CACHE_TTL,
+    staleTime: 30 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
     initialData: () => readPersisted<SearchHistoryItem[]>(cacheKey, HISTORY_CACHE_TTL)?.data,
     initialDataUpdatedAt: () => readPersisted<SearchHistoryItem[]>(cacheKey, HISTORY_CACHE_TTL)?.cachedAt,
   });
