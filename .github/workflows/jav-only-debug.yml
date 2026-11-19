@@ -17,12 +17,13 @@ permissions:
 
 # Skip obsolete Android builds after rapidly successive native-overlay changes.
 concurrency:
-  group: atlas-jav-debug-${{ github.ref }}
+  group: atlas-jav-debug-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   android-debug:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     name: Build Android Debug APK
     steps:
       - name: Checkout JAV-only branch
