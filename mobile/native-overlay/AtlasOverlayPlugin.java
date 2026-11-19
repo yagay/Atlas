@@ -21,6 +21,9 @@ public class AtlasOverlayPlugin extends Plugin {
         data.put("supported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
         data.put("permissionGranted", Settings.canDrawOverlays(getContext()));
         data.put("running", AtlasOverlayService.isRunning());
+        int opacity = getContext().getSharedPreferences("overlay_window", android.content.Context.MODE_PRIVATE)
+                .getInt("opacity", 100);
+        data.put("opacity", Math.max(50, Math.min(100, opacity)));
         return data;
     }
 
@@ -66,6 +69,30 @@ public class AtlasOverlayPlugin extends Plugin {
         } catch (Exception error) {
             call.reject("无法启动悬浮搜索服务", error);
         }
+    }
+
+    @PluginMethod
+    public void setOpacity(PluginCall call) {
+        Integer requested = call.getInt("opacity");
+        if (requested == null) {
+            call.reject("缺少透明度参数");
+            return;
+        }
+        int value = Math.max(50, Math.min(100, requested));
+        getContext().getSharedPreferences("overlay_window", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("opacity", value).apply();
+        if (AtlasOverlayService.isRunning()) {
+            Intent action = new Intent(getContext(), AtlasOverlayService.class);
+            action.setAction(AtlasOverlayService.ACTION_SET_OPACITY);
+            action.putExtra(AtlasOverlayService.EXTRA_OPACITY, value);
+            try {
+                getContext().startService(action);
+            } catch (Exception error) {
+                call.reject("更新悬浮窗透明度失败", error);
+                return;
+            }
+        }
+        call.resolve(state());
     }
 
     @PluginMethod
