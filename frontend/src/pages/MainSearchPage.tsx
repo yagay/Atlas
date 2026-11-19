@@ -11,7 +11,7 @@ import { useAuthStore, useSourceStore, useProxyStore } from '@/stores';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { SearchTabType, JavSubMode } from '@/types/source';
 import type { JavEnrichedData } from '@/types/search';
-import { TAB_IDS, JAV_SUB_MODES } from '@/types/source';
+import { JAV_SUB_MODES } from '@/types/source';
 import {
   AnnouncementBar,
   SearchDock,
