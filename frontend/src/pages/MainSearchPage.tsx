@@ -118,19 +118,17 @@ export const MainSearchPage: React.FC = () => {
     const tabParam = searchParams.get('tab');
     const subParam = searchParams.get('sub');
 
-    // 兼容旧链接：?tab=community 直接跳转社区页
-    if (tabParam === 'community') {
-      navigate('/community', { replace: true });
+    // 旧版的非 JAV 搜索链接统一回到 JAV，同时保留搜索关键词及子模式。
+    if (tabParam && tabParam !== 'jav') {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('tab', 'jav');
+      setActiveTab('jav');
+      setSearchParams(nextParams, { replace: true });
       return;
     }
-
-    const nextTab = tabParam && TAB_IDS.includes(tabParam as SearchTabType)
-      ? (tabParam as SearchTabType)
-      : null;
-
-    if (nextTab && nextTab !== activeTab) {
-      setActiveTab(nextTab);
-      if (qParam) return; // 等 activeTab 更新后本 effect 会再次执行
+    if (activeTab !== 'jav') {
+      setActiveTab('jav');
+      return;
     }
 
     let overrideSubMode: JavSubMode | undefined;
@@ -153,7 +151,7 @@ export const MainSearchPage: React.FC = () => {
 
   // ── Tab 切换 ─────────────────────────────
   const handleTabChange = useCallback((tab: SearchTabType) => {
-    if (tab === 'community') { navigate('/community'); return; }
+    if (tab !== 'jav') return; // 只保留 JAV 搜索
     setActiveTab(tab);
     const params: Record<string, string> = { tab };
     if (searchFlow.keyword.trim()) params.q = searchFlow.keyword.trim();
