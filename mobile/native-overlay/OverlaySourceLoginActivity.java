@@ -150,6 +150,7 @@ public class OverlaySourceLoginActivity extends Activity {
         });
         root.addView(browser, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(root);
+        AtlasSafeArea.install(this);
         browser.loadUrl(sourceUrl);
     }
 
