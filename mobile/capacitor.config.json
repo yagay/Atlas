@@ -30,7 +30,7 @@
       "enabled": true
     },
     "SystemBars": {
-      "insetsHandling": "native",
+      "insetsHandling": "disable",
       "initialViewportFitValueHint": "contain",
       "hidden": false
     }
