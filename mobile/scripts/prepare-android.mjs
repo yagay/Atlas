@@ -77,7 +77,7 @@ if (!manifest.includes('android:scheme="atlas"')) {
 const javaRoot = path.join(mobileDir, 'android/app/src/main/java/uk/wort/atlas');
 const overlayJavaDir = path.join(javaRoot, 'overlay');
 fs.mkdirSync(overlayJavaDir, { recursive: true });
-for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java', 'AtlasSourceBrowserActivity.java']) {
+for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java', 'AtlasSourceBrowserActivity.java', 'AtlasExternalActionReceiver.java']) {
   fs.copyFileSync(path.join(mobileDir, 'native-overlay', file), path.join(overlayJavaDir, file));
 }
 const mainActivityFile = path.join(javaRoot, 'MainActivity.java');
@@ -132,6 +132,18 @@ if (!overlayManifest.includes('uk.wort.atlas.overlay.OverlaySourceLoginActivity'
             android:exported="false"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+    </application>`);
+}
+
+if (!overlayManifest.includes('uk.wort.atlas.overlay.AtlasExternalActionReceiver')) {
+  overlayManifest = overlayManifest.replace('</application>',
+    `        <receiver
+            android:name="uk.wort.atlas.overlay.AtlasExternalActionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="uk.wort.atlas.overlay.OPEN_PANEL" />
+            </intent-filter>
+        </receiver>
     </application>`);
 }
 
