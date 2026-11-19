@@ -420,12 +420,8 @@ public class AtlasOverlayService extends Service {
         });
         root.addView(searchRow, itemParams(-1, dp(44), 12));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setVerticalScrollBarEnabled(true);
         results = vertical();
         results.setPadding(0, dp(3), 0, 0);
-        scroll.addView(results);
         // The content is WRAP_CONTENT until it reaches a safe, scrollable height.
         // No fixed 390dp blank area above/below a small result.
         Rect safe = safeBounds();
@@ -435,13 +431,11 @@ public class AtlasOverlayService extends Service {
         ScrollView compactResults = new ScrollView(this) {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(
-                        Math.min(maxResultsHeight, View.MeasureSpec.getSize(heightSpec)),
-                        View.MeasureSpec.AT_MOST));
+                        maxResultsHeight, View.MeasureSpec.AT_MOST));
             }
         };
         compactResults.setFillViewport(false);
         compactResults.setVerticalScrollBarEnabled(true);
-        scroll.removeView(results);
         compactResults.addView(results);
         resultScroll = compactResults;
         resultScroll.setVisibility(View.GONE);
