@@ -16,14 +16,14 @@ export const useSourceStore = create<SourceState>()(
   persist(
     (set) => ({
       activeTab: 'jav',
-      setActiveTab: (activeTab) => set({ activeTab }),
+      // JAV-only: 旧版本持久化的其他搜索分类统一回到 JAV。
+      setActiveTab: () => set({ activeTab: 'jav' }),
     }),
     {
       name: 'source-storage',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        activeTab: state.activeTab,
-      }),
+      partialize: () => ({ activeTab: 'jav' as const }),
+      merge: (persisted, current) => ({ ...current, ...(persisted as Partial<SourceState>), activeTab: 'jav' }),
     }
   )
 );
