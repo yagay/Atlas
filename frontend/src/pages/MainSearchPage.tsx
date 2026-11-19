@@ -3,7 +3,7 @@
  * Intentionally keeps useSearchFlow/useJavSearchFlow and existing result panels.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, LogOut, Moon, Sun } from 'lucide-react';
+import { Search, LogOut, Moon, Sun, Settings2 } from 'lucide-react';
 import { useAuthStore, useSourceStore, useProxyStore, useThemeStore } from '@/stores';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { JavSubMode } from '@/types/source';
@@ -155,10 +155,14 @@ export const MainSearchPage: React.FC = () => {
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500 text-white">
               <Search className="h-5 w-5" />
             </span>
-            <span>Atlas · JAV 搜索</span>
+            <span className="hidden min-[390px]:inline">Atlas · </span><span>JAV 搜索</span>
           </button>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
             <OverlaySearchButton />
+            <button type="button" onClick={() => navigate('/settings')} aria-label="打开设置" title="设置"
+              className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
+              <Settings2 className="h-[18px] w-[18px]" />
+            </button>
             <LanguageSwitcher />
             <button type="button" onClick={toggleTheme} aria-label="切换主题" title="切换主题"
               className="rounded-lg p-2 text-surface-500 hover:bg-surface-100 dark:hover:bg-surface-800">
