@@ -950,7 +950,7 @@ public class AtlasOverlayService extends Service {
         addInfo("正在抓取 " + name + " 的网页内容…");
         io.execute(() -> {
             try {
-                JSONObject preview = OverlaySourceClient.preview(sourceId, name, url);
+                JSONObject preview = OverlaySourceClient.preview(getApplicationContext(), sourceId, name, url);
                 ui.post(() -> {
                     if (request != searchGeneration || results == null || panel == null) return;
                     if (!detail) currentSourceList = preview;
@@ -976,7 +976,7 @@ public class AtlasOverlayService extends Service {
     private void sourcePreviewCover(String sourceId, String url, ImageView image, int request) {
         if (url == null || url.isEmpty()) return;
         io.execute(() -> {
-            Bitmap bitmap = OverlaySourceClient.cover(sourceId, url);
+            Bitmap bitmap = OverlaySourceClient.cover(getApplicationContext(), sourceId, url);
             if (bitmap == null) bitmap = OverlaySearchClient.cover(url);
             if (bitmap == null) return;
             final Bitmap display = bitmap;
