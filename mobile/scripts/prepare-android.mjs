@@ -77,7 +77,7 @@ if (!manifest.includes('android:scheme="atlas"')) {
 const javaRoot = path.join(mobileDir, 'android/app/src/main/java/uk/wort/atlas');
 const overlayJavaDir = path.join(javaRoot, 'overlay');
 fs.mkdirSync(overlayJavaDir, { recursive: true });
-for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java']) {
+for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java']) {
   fs.copyFileSync(path.join(mobileDir, 'native-overlay', file), path.join(overlayJavaDir, file));
 }
 const mainActivityFile = path.join(javaRoot, 'MainActivity.java');
@@ -111,6 +111,18 @@ for (const permission of [
     );
   }
 }
+// Site sign-in is intentionally a non-exported Activity. It opens only when
+// the user taps "登录" on a known search source inside the floating overlay.
+if (!overlayManifest.includes('uk.wort.atlas.overlay.OverlaySourceLoginActivity')) {
+  overlayManifest = overlayManifest.replace('</application>',
+    `        <activity
+            android:name="uk.wort.atlas.overlay.OverlaySourceLoginActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+    </application>`);
+}
+
 if (!overlayManifest.includes('uk.wort.atlas.overlay.AtlasOverlayService')) {
   const service = `        <service
             android:name="uk.wort.atlas.overlay.AtlasOverlayService"
