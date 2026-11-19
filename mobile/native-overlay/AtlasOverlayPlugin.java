@@ -95,6 +95,33 @@ public class AtlasOverlayPlugin extends Plugin {
         call.resolve(state());
     }
 
+    /**
+     * Main App's source cards open the same native viewer the floating window
+     * uses. No overlay permission or separate website session is needed.
+     */
+    @PluginMethod
+    public void openSource(PluginCall call) {
+        String sourceId = call.getString("sourceId", "");
+        String sourceName = call.getString("sourceName", "搜索源");
+        String url = call.getString("url");
+        if (!OverlayWebPanel.isSafeInitialUrl(url) ||
+                (OverlaySourceClient.supported(sourceId) &&
+                 !OverlaySourceClient.isApprovedWebUrl(sourceId, url))) {
+            call.reject("来源地址不受支持，仅允许对应站点的 HTTPS 网页");
+            return;
+        }
+        try {
+            Intent viewer = new Intent(getContext(), AtlasSourceBrowserActivity.class);
+            viewer.putExtra("sourceId", sourceId);
+            viewer.putExtra("sourceName", sourceName);
+            viewer.putExtra("url", url);
+            getActivity().startActivity(viewer);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("无法在 Atlas 中打开来源页面", error);
+        }
+    }
+
     @PluginMethod
     public void stop(PluginCall call) {
         Intent service = new Intent(getContext(), AtlasOverlayService.class);
