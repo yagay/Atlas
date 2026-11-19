@@ -252,12 +252,12 @@ const App: React.FC = () => {
         */}
         <Route path="/anime" element={
           <GuardRoute>
-            <Navigate to="/main?tab=anime" replace />
+            <Navigate to="/main?tab=jav" replace />
           </GuardRoute>
         } />
         <Route path="/movie" element={
           <GuardRoute>
-            <Navigate to="/main?tab=movie" replace />
+            <Navigate to="/main?tab=jav" replace />
           </GuardRoute>
         } />
         
