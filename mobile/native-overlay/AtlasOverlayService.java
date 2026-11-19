@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Insets;
@@ -620,6 +621,36 @@ public class AtlasOverlayService extends Service {
         Toast.makeText(this, "磁力链接已复制", Toast.LENGTH_SHORT).show();
     }
 
+    /**
+     * Hand a magnet URI to the Android resolver. A floating service has no
+     * Activity context, so NEW_TASK is required. Never navigate to Atlas or
+     * reinterpret the magnet as an http(s) URL.
+     */
+    private void openMagnet(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            Toast.makeText(this, "磁力链接为空", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            android.net.Uri magnet = android.net.Uri.parse(value.trim());
+            if (!"magnet".equalsIgnoreCase(magnet.getScheme())
+                    || magnet.getQueryParameter("xt") == null) {
+                Toast.makeText(this, "磁力链接格式无效", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent open = new Intent(Intent.ACTION_VIEW, magnet);
+            open.addCategory(Intent.CATEGORY_BROWSABLE);
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(open);
+        } catch (ActivityNotFoundException noHandler) {
+            Toast.makeText(this, "没有可打开磁力链接的应用，请安装支持磁力链接的下载工具或点击复制",
+                    Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "无法打开磁力链接，可点击复制后使用其他应用",
+                    Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void showSearchResult(JSONObject data, int request) {
         if (results == null) return;
         if (resultScroll != null) {
@@ -674,7 +705,7 @@ public class AtlasOverlayService extends Service {
             }
             JSONArray magnets = detail.optJSONArray("magnets");
             if (magnets != null && magnets.length() > 0) {
-                addHeading("磁力资源 · " + magnets.length() + " 条（点复制）");
+                addHeading("磁力资源 · " + magnets.length() + " 条");
                 for (int i = 0; i < Math.min(18, magnets.length()); i++) {
                     JSONObject m = magnets.optJSONObject(i);
                     if (m == null) continue;
@@ -688,9 +719,23 @@ public class AtlasOverlayService extends Service {
                     info.addView(label(m.optString("size", "大小未知") +
                             (m.optBoolean("isHD") ? " · HD" : ""), 11, Color.rgb(174, 177, 186), false));
                     row.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+                    Button open = action("打开");
+                    open.setContentDescription("使用其他应用打开磁力链接");
+                    open.setOnClickListener(v -> openMagnet(link));
+                    LinearLayout.LayoutParams openParams =
+                            new LinearLayout.LayoutParams(dp(53), dp(36));
+                    openParams.leftMargin = dp(5);
+                    row.addView(open, openParams);
+
                     Button copy = action("复制");
+                    copy.setContentDescription("复制磁力链接");
                     copy.setOnClickListener(v -> copyMagnet(link));
-                    row.addView(copy, new LinearLayout.LayoutParams(dp(60), dp(36)));
+                    copy.setTextColor(Color.rgb(236, 218, 192));
+                    copy.setBackground(background(Color.rgb(65, 68, 76), 8, 0));
+                    LinearLayout.LayoutParams copyParams =
+                            new LinearLayout.LayoutParams(dp(53), dp(36));
+                    copyParams.leftMargin = dp(5);
+                    row.addView(copy, copyParams);
                     results.addView(row, itemParams(-1, -2, 6));
                 }
                 if (magnets.length() > 18) addSmall("其余 " + (magnets.length() - 18) + " 条资源可在主 App 查看");
