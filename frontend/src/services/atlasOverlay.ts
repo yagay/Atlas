@@ -16,6 +16,7 @@ interface AtlasOverlayBridge {
   start(options: { token: string }): Promise<OverlayStatus>;
   stop(): Promise<OverlayStatus>;
   setOpacity(options: { opacity: number }): Promise<OverlayStatus>;
+  openSource(options: { sourceId: string; sourceName: string; url: string }): Promise<void>;
 }
 
 const plugin = registerPlugin<AtlasOverlayBridge>('AtlasOverlay');
@@ -27,4 +28,6 @@ export const atlasOverlay = {
   start: (token: string) => plugin.start({ token }),
   stop: () => plugin.stop(),
   setOpacity: (opacity: number) => plugin.setOpacity({ opacity }),
+  openSource: (source: { sourceId: string; sourceName: string; url: string }) =>
+    plugin.openSource(source),
 };
