@@ -77,6 +77,11 @@ public class AtlasOverlayService extends Service {
     private int searchGeneration = 0;
     private boolean closing = false;
     private int opacityPercent = 100;
+    private JSONObject lastSearchData;
+    private JSONObject currentSourceList;
+    private String selectedSourceId;
+    private String selectedSourceName;
+    private String selectedSourceUrl;
 
     public static boolean isRunning() { return running; }
 
@@ -558,6 +563,11 @@ public class AtlasOverlayService extends Service {
         }
         results = null;
         searchInput = null;
+        lastSearchData = null;
+        currentSourceList = null;
+        selectedSourceId = null;
+        selectedSourceName = null;
+        selectedSourceUrl = null;
         resultScroll = null;
         opacityLabel = null;
         panelParams = null;
@@ -597,6 +607,9 @@ public class AtlasOverlayService extends Service {
         final int request = ++searchGeneration;
         final String mode = currentMode;
         final String credential = token;
+        lastSearchData = null;
+        currentSourceList = null;
+        selectedSourceId = null;
         results.removeAllViews();
         if (resultScroll != null) resultScroll.setVisibility(View.VISIBLE);
         addInfo("正在搜索：" + query);
@@ -659,6 +672,7 @@ public class AtlasOverlayService extends Service {
             resultScroll.scrollTo(0, 0);
         }
         results.removeAllViews();
+        lastSearchData = data;
         boolean populated = false;
         JSONObject detail = data.optJSONObject("detail");
         if (detail != null) {
@@ -788,18 +802,12 @@ public class AtlasOverlayService extends Service {
                 if (source == null) continue;
                 String url = source.optString("url");
                 if (!url.startsWith("https://")) continue;
-                Button button = action(source.optString("name", "搜索源") + "  ↗");
+                String sourceId = source.optString("id", "");
+                String sourceName = source.optString("name", "搜索源");
+                Button button = action(sourceName + (OverlaySourceClient.supported(sourceId) ? " · 查看内容" : " · 预览"));
                 button.setTextColor(Color.rgb(228, 229, 233));
                 button.setBackground(background(Color.rgb(48, 50, 58), 8, 0));
-                button.setOnClickListener(v -> {
-                    try {
-                        Intent view = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
-                        view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(view);
-                    } catch (Exception ex) {
-                        Toast.makeText(this, "无法打开搜索源", Toast.LENGTH_SHORT).show();
-                    }
-                });
+                button.setOnClickListener(v -> loadSourcePreview(sourceId, sourceName, url, false));
                 results.addView(button, itemParams(-1, dp(38), 5));
             }
         }
@@ -808,6 +816,234 @@ public class AtlasOverlayService extends Service {
             JSONObject errors = data.optJSONObject("errors");
             if (errors != null && !errors.optString("search").isEmpty()) info = errors.optString("search");
             addInfo(info);
+        }
+    }
+
+    private void addSourceToolbar(String sourceName, String pageUrl, boolean detail) {
+        if (results == null) return;
+        LinearLayout bar = horizontal();
+        Button back = action(detail ? "‹ 列表" : "‹ 搜索");
+        back.setTextSize(12);
+        back.setOnClickListener(v -> {
+            int request = ++searchGeneration; // invalidate outstanding image/HTML callbacks
+            if (detail && currentSourceList != null) {
+                showSourcePreview(currentSourceList, selectedSourceId,
+                        selectedSourceName, selectedSourceUrl, false, request);
+            } else if (lastSearchData != null) {
+                showSearchResult(lastSearchData, request);
+            } else {
+                results.removeAllViews();
+                addInfo("请重新搜索");
+            }
+        });
+        bar.addView(back, new LinearLayout.LayoutParams(dp(76), dp(36)));
+        TextView sourceLabel = label(sourceName, 12, Color.WHITE, true);
+        sourceLabel.setSingleLine(true);
+        sourceLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, dp(36), 1);
+        titleParams.leftMargin = dp(8);
+        bar.addView(sourceLabel, titleParams);
+        Button browser = action("网页 ↗");
+        browser.setTextColor(Color.rgb(231, 234, 239));
+        browser.setBackground(background(Color.rgb(55, 59, 69), 8, 0));
+        browser.setOnClickListener(v -> openSourceWebsite(pageUrl));
+        LinearLayout.LayoutParams browseParams = new LinearLayout.LayoutParams(dp(69), dp(36));
+        browseParams.leftMargin = dp(6);
+        bar.addView(browser, browseParams);
+        results.addView(bar, itemParams(-1, dp(36), 0));
+    }
+
+    private void openSourceWebsite(String rawUrl) {
+        try {
+            android.net.Uri uri = android.net.Uri.parse(rawUrl);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                Toast.makeText(this, "来源网址无效", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent view = new Intent(Intent.ACTION_VIEW, uri);
+            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(view);
+        } catch (Exception error) {
+            Toast.makeText(this, "没有可用浏览器或无法打开此页面", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Fetch known public source pages off the UI thread, then render structured
+     * results inside this same overlay. No Activity/browser switch by default.
+     */
+    private void loadSourcePreview(String sourceId, String name, String url, boolean detail) {
+        if (results == null || panel == null) return;
+        if (!detail) {
+            selectedSourceId = sourceId;
+            selectedSourceName = name;
+            selectedSourceUrl = url;
+            currentSourceList = null;
+        }
+        final int request = ++searchGeneration;
+        results.removeAllViews();
+        if (resultScroll != null) {
+            resultScroll.setVisibility(View.VISIBLE);
+            resultScroll.scrollTo(0, 0);
+        }
+        addSourceToolbar(name, url, detail);
+        if (!OverlaySourceClient.supported(sourceId)) {
+            addHeading("暂无该来源的解析器");
+            addInfo("这个搜索源目前只提供网址，无法安全地自动读取内容。可点击右上角「网页」继续查看。");
+            return;
+        }
+        addInfo("正在抓取 " + name + " 的网页内容…");
+        io.execute(() -> {
+            try {
+                JSONObject preview = OverlaySourceClient.preview(sourceId, name, url);
+                ui.post(() -> {
+                    if (request != searchGeneration || results == null || panel == null) return;
+                    if (!detail) currentSourceList = preview;
+                    showSourcePreview(preview, sourceId, name, url, detail, request);
+                });
+            } catch (Exception err) {
+                String reason = err.getMessage();
+                ui.post(() -> {
+                    if (request != searchGeneration || results == null || panel == null) return;
+                    results.removeAllViews();
+                    addSourceToolbar(name, url, detail);
+                    addHeading("无法在小窗中读取此来源");
+                    addInfo(reason == null ? "来源返回了无法解析的内容" : reason);
+                    addInfo("可以通过右上角「网页」查看；不影响其他来源或原有磁力结果。");
+                    Button retry = action("重新抓取");
+                    retry.setOnClickListener(v -> loadSourcePreview(sourceId, name, url, detail));
+                    results.addView(retry, itemParams(-1, dp(38), 8));
+                });
+            }
+        });
+    }
+
+    private void sourcePreviewCover(String sourceId, String url, ImageView image, int request) {
+        if (url == null || url.isEmpty()) return;
+        io.execute(() -> {
+            Bitmap bitmap = OverlaySourceClient.cover(sourceId, url);
+            if (bitmap == null) bitmap = OverlaySearchClient.cover(url);
+            if (bitmap == null) return;
+            final Bitmap display = bitmap;
+            ui.post(() -> {
+                if (request == searchGeneration && panel != null && results != null) {
+                    image.setImageBitmap(display);
+                }
+            });
+        });
+    }
+
+    private void appendSourceMagnets(JSONArray magnets) {
+        if (magnets == null || magnets.length() == 0 || results == null) return;
+        addHeading("本页磁力 · " + magnets.length() + " 条");
+        for (int i = 0; i < Math.min(15, magnets.length()); i++) {
+            JSONObject magnet = magnets.optJSONObject(i);
+            if (magnet == null) continue;
+            String link = magnet.optString("magnet", "");
+            if (!link.startsWith("magnet:?")) continue;
+            LinearLayout entry = horizontal();
+            entry.setPadding(dp(7), dp(5), dp(6), dp(5));
+            entry.setBackground(background(Color.rgb(44, 47, 54), 7, 0));
+            TextView name = label(magnet.optString("name", "磁力资源 " + (i + 1)),
+                    11, Color.rgb(216, 220, 227), false);
+            name.setMaxLines(2);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            entry.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            Button open = action("打开");
+            open.setOnClickListener(v -> openMagnet(link));
+            entry.addView(open, new LinearLayout.LayoutParams(dp(54), dp(34)));
+            Button copy = action("复制");
+            copy.setOnClickListener(v -> copyMagnet(link));
+            copy.setTextColor(Color.rgb(235, 220, 199));
+            copy.setBackground(background(Color.rgb(58, 62, 70), 8, 0));
+            LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(dp(52), dp(34));
+            copyParams.leftMargin = dp(5);
+            entry.addView(copy, copyParams);
+            results.addView(entry, itemParams(-1, -2, 6));
+        }
+    }
+
+    private void showSourcePreview(JSONObject preview, String sourceId, String name,
+                                   String fallbackUrl, boolean detail, int request) {
+        if (results == null) return;
+        results.removeAllViews();
+        if (resultScroll != null) {
+            resultScroll.setVisibility(View.VISIBLE);
+            resultScroll.scrollTo(0, 0);
+        }
+        String pageUrl = preview.optString("url", fallbackUrl);
+        addSourceToolbar(name, pageUrl, detail);
+        String heading = preview.optString("title", "");
+        if (!heading.isEmpty()) {
+            TextView title = label(heading, 13, Color.rgb(237, 188, 127), true);
+            title.setMaxLines(3);
+            title.setPadding(dp(3), dp(8), dp(3), dp(3));
+            results.addView(title);
+        }
+        if (detail) {
+            String coverUrl = preview.optString("cover", "");
+            if (!coverUrl.isEmpty()) {
+                ImageView cover = new ImageView(this);
+                cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                cover.setBackground(background(Color.rgb(47, 49, 56), 7, 0));
+                results.addView(cover, itemParams(dp(124), dp(160), 7));
+                sourcePreviewCover(sourceId, coverUrl, cover, request);
+            }
+            String description = preview.optString("description", "");
+            if (!description.isEmpty()) addInfo(description.length() > 350
+                    ? description.substring(0, 350) + "…" : description);
+        }
+        JSONArray items = preview.optJSONArray("items");
+        if (items != null && items.length() > 0) {
+            addHeading((detail ? "相关作品" : "来源搜索结果") + " · " + items.length() + " 条");
+            for (int i = 0; i < Math.min(20, items.length()); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item == null) continue;
+                String itemUrl = item.optString("url", "");
+                String code = item.optString("code", "");
+                String title = item.optString("title", "");
+                if (itemUrl.isEmpty() || title.isEmpty()) continue;
+                LinearLayout card = horizontal();
+                card.setPadding(dp(5), dp(5), dp(5), dp(5));
+                card.setBackground(background(Color.rgb(46, 49, 56), 8, 0));
+                String coverUrl = item.optString("cover", "");
+                if (!coverUrl.isEmpty() && i < 8) {
+                    ImageView cover = new ImageView(this);
+                    cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                    cover.setBackground(background(Color.rgb(61, 63, 71), 7, 0));
+                    card.addView(cover, new LinearLayout.LayoutParams(dp(54), dp(74)));
+                    sourcePreviewCover(sourceId, coverUrl, cover, request);
+                }
+                LinearLayout info = vertical();
+                info.setPadding(dp(8), 0, dp(3), 0);
+                if (!code.isEmpty()) {
+                    info.addView(label(code, 12, Color.rgb(239, 183, 110), true));
+                }
+                TextView description = label(title, 11, Color.WHITE, false);
+                description.setMaxLines(3);
+                description.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                info.addView(description, itemParams(-1, -2, 4));
+                card.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+                TextView go = label("›", 24, Color.rgb(236, 184, 118), true);
+                card.addView(go, new LinearLayout.LayoutParams(dp(20), -2));
+                card.setOnClickListener(v -> loadSourcePreview(sourceId, name, itemUrl, true));
+                results.addView(card, itemParams(-1, -2, 6));
+            }
+        }
+
+        appendSourceMagnets(preview.optJSONArray("magnets"));
+
+        if ((items == null || items.length() == 0) &&
+                (preview.optJSONArray("magnets") == null ||
+                        preview.optJSONArray("magnets").length() == 0)) {
+            addInfo("已读取到网页，但未提取出可用的作品卡片或磁力。可能是站点结构变化、需要登录，或内容由 JavaScript 动态加载。可使用「网页」查看原站。");
+        }
+
+        String nextUrl = preview.optString("nextUrl", "");
+        if (!detail && !nextUrl.isEmpty()) {
+            Button next = action("加载来源下一页");
+            next.setOnClickListener(v -> loadSourcePreview(sourceId, name, nextUrl, false));
+            results.addView(next, itemParams(-1, dp(40), 9));
         }
     }
 
