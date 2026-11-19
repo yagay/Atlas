@@ -54,6 +54,7 @@ public class AtlasOverlayService extends Service {
     public static final String ACTION_START = "uk.wort.atlas.overlay.START";
     public static final String ACTION_STOP = "uk.wort.atlas.overlay.STOP";
     public static final String ACTION_SET_OPACITY = "uk.wort.atlas.overlay.OPACITY";
+    public static final String ACTION_SITE_LOGIN_FINISHED = "uk.wort.atlas.overlay.LOGIN_FINISHED";
     public static final String EXTRA_OPACITY = "opacity";
     private static final String WINDOW_PREFS = "overlay_window";
     public static final String EXTRA_TOKEN = "token";
@@ -82,6 +83,9 @@ public class AtlasOverlayService extends Service {
     private String selectedSourceId;
     private String selectedSourceName;
     private String selectedSourceUrl;
+    private String activeSourceUrl;
+    private boolean activeSourceDetail;
+    private boolean sourceLoginOpen;
 
     public static boolean isRunning() { return running; }
 
@@ -98,6 +102,19 @@ public class AtlasOverlayService extends Service {
         }
         if (ACTION_SET_OPACITY.equals(intent.getAction())) {
             setPanelOpacity(intent.getIntExtra(EXTRA_OPACITY, getSavedOpacity()));
+            return START_NOT_STICKY;
+        }
+        if (ACTION_SITE_LOGIN_FINISHED.equals(intent.getAction())) {
+            sourceLoginOpen = false;
+            if (panel != null) panel.setVisibility(View.VISIBLE);
+            if (bubble != null && panel == null) bubble.setVisibility(View.VISIBLE);
+            String loggedSource = intent.getStringExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_ID);
+            if (running && token != null && panel != null &&
+                    loggedSource != null && loggedSource.equals(selectedSourceId) &&
+                    activeSourceUrl != null) {
+                loadSourcePreview(selectedSourceId, selectedSourceName,
+                        activeSourceUrl, activeSourceDetail);
+            }
             return START_NOT_STICKY;
         }
         String nextToken = intent.getStringExtra(EXTRA_TOKEN);
@@ -568,6 +585,9 @@ public class AtlasOverlayService extends Service {
         selectedSourceId = null;
         selectedSourceName = null;
         selectedSourceUrl = null;
+        activeSourceUrl = null;
+        activeSourceDetail = false;
+        sourceLoginOpen = false;
         resultScroll = null;
         opacityLabel = null;
         panelParams = null;
@@ -819,6 +839,29 @@ public class AtlasOverlayService extends Service {
         }
     }
 
+    private void openSourceLogin(String sourceId, String name, String pageUrl) {
+        if (sourceLoginOpen || !OverlaySourceClient.isApprovedWebUrl(sourceId, pageUrl)) {
+            Toast.makeText(this, "此来源暂不支持内嵌登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (panel == null) return;
+        try {
+            Intent signIn = new Intent(this, OverlaySourceLoginActivity.class);
+            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_ID, sourceId);
+            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_NAME, name);
+            signIn.putExtra(OverlaySourceLoginActivity.EXTRA_SOURCE_URL, pageUrl);
+            signIn.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            sourceLoginOpen = true;
+            panel.setVisibility(View.GONE);
+            if (bubble != null) bubble.setVisibility(View.GONE);
+            startActivity(signIn);
+        } catch (Exception issue) {
+            sourceLoginOpen = false;
+            if (panel != null) panel.setVisibility(View.VISIBLE);
+            Toast.makeText(this, "无法启动站点登录页面", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void addSourceToolbar(String sourceName, String pageUrl, boolean detail) {
         if (results == null) return;
         LinearLayout bar = horizontal();
@@ -843,6 +886,16 @@ public class AtlasOverlayService extends Service {
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, dp(36), 1);
         titleParams.leftMargin = dp(8);
         bar.addView(sourceLabel, titleParams);
+        if (OverlaySourceClient.supported(selectedSourceId)) {
+            Button signIn = action("登录");
+            signIn.setTextColor(Color.rgb(236, 194, 133));
+            signIn.setBackground(background(Color.rgb(49, 53, 61), 8, 0));
+            signIn.setOnClickListener(v -> openSourceLogin(selectedSourceId, sourceName, pageUrl));
+            LinearLayout.LayoutParams signInParams =
+                    new LinearLayout.LayoutParams(dp(54), dp(36));
+            signInParams.rightMargin = dp(5);
+            bar.addView(signIn, signInParams);
+        }
         Button browser = action("网页 ↗");
         browser.setTextColor(Color.rgb(231, 234, 239));
         browser.setBackground(background(Color.rgb(55, 59, 69), 8, 0));
@@ -880,6 +933,8 @@ public class AtlasOverlayService extends Service {
             selectedSourceUrl = url;
             currentSourceList = null;
         }
+        activeSourceUrl = url;
+        activeSourceDetail = detail;
         final int request = ++searchGeneration;
         results.removeAllViews();
         if (resultScroll != null) {
