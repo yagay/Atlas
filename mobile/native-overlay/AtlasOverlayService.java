@@ -207,8 +207,10 @@ public class AtlasOverlayService extends Service {
             top = Math.max(dp(35), bars.top + dp(10));
             bottom = height - Math.max(dp(42), bars.bottom + dp(10));
         }
-        return new Rect(left, top, Math.max(left + dp(220), right),
-                Math.max(top + dp(230), bottom));
+        // Never enlarge a safe rectangle beyond the physical display. The old
+        // 220/230dp minimums could put small overlay content under system bars.
+        return new Rect(left, top, Math.max(left + 1, right),
+                Math.max(top + 1, bottom));
     }
 
     private void keepPanelVisible() {
@@ -314,8 +316,11 @@ public class AtlasOverlayService extends Service {
                 .getInt("x", dm.widthPixels - size - dp(14));
         bubbleParams.y = getSharedPreferences("overlay_position", MODE_PRIVATE)
                 .getInt("y", dp(190));
-        bubbleParams.x = Math.max(0, Math.min(dm.widthPixels - size, bubbleParams.x));
-        bubbleParams.y = Math.max(dp(25), Math.min(dm.heightPixels - size - dp(35), bubbleParams.y));
+        Rect bubbleSafe = safeBounds();
+        bubbleParams.x = clamp(bubbleParams.x, bubbleSafe.left,
+                Math.max(bubbleSafe.left, bubbleSafe.right - size));
+        bubbleParams.y = clamp(bubbleParams.y, bubbleSafe.top,
+                Math.max(bubbleSafe.top, bubbleSafe.bottom - size));
         icon.setOnTouchListener(new View.OnTouchListener() {
             private float initialX, initialY;
             private int startX, startY;
@@ -332,8 +337,11 @@ public class AtlasOverlayService extends Service {
                         float dy = event.getRawY() - initialY;
                         if (Math.abs(dx) > dp(6) || Math.abs(dy) > dp(6)) moved = true;
                         if (moved) {
-                            bubbleParams.x = Math.max(0, Math.min(dm.widthPixels - size, startX + Math.round(dx)));
-                            bubbleParams.y = Math.max(dp(25), Math.min(dm.heightPixels - size - dp(35), startY + Math.round(dy)));
+                            Rect bubbleArea = safeBounds();
+                            bubbleParams.x = clamp(startX + Math.round(dx),
+                                    bubbleArea.left, Math.max(bubbleArea.left, bubbleArea.right - size));
+                            bubbleParams.y = clamp(startY + Math.round(dy),
+                                    bubbleArea.top, Math.max(bubbleArea.top, bubbleArea.bottom - size));
                             if (bubble != null) windows.updateViewLayout(bubble, bubbleParams);
                         }
                         return true;
@@ -528,7 +536,7 @@ public class AtlasOverlayService extends Service {
         Rect safe = safeBounds();
         int reservedForToolbar = dp(196);
         final int maxResultsHeight = Math.min(dp(360),
-                Math.max(dp(88), safe.height() - reservedForToolbar));
+                Math.max(dp(36), safe.height() - reservedForToolbar));
         ScrollView compactResults = new ScrollView(this) {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 super.onMeasure(widthSpec, View.MeasureSpec.makeMeasureSpec(
@@ -899,7 +907,10 @@ public class AtlasOverlayService extends Service {
             selectedSourceUrl = url;
         }
         try {
-            int availableHeight = Math.max(dp(220), safeBounds().height() - dp(105));
+            // The header, panel padding and margins consume ~64dp. Size the
+            // embedded site using the actual safe height, not screen height.
+            // In particular, never force a 220dp web panel under 3-button nav.
+            int availableHeight = Math.max(dp(65), safeBounds().height() - dp(76));
             int webHeight = Math.min(dp(530), availableHeight);
             OverlayWebPanel embedded = new OverlayWebPanel(
                     this, sourceId, name, url, webHeight, true, new OverlayWebPanel.Actions() {
