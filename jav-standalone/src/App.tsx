@@ -410,6 +410,9 @@ export function App() {
             <button type="button" className="github-login full" disabled={loginBusy || oauthBusy} onClick={() => void loginWithGitHub()}>
               <Github size={19}/> {oauthBusy ? '正在等待 GitHub 授权…' : '使用 GitHub 登录'}
             </button>
+            <p className="oauth-guidance">授权将在系统浏览器中完成；返回时若出现应用选择，请选择 JAV Search。</p>
+            {error && <div className="login-feedback error" role="alert">{error}</div>}
+            {notice && <div className="login-feedback notice">{notice}</div>}
             <div className="service-info"><ShieldCheck size={15}/> API: {api}</div>
           </form>
         </section>
