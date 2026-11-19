@@ -8,12 +8,14 @@ export interface OverlayStatus {
   supported: boolean;
   permissionGranted: boolean;
   running: boolean;
+  opacity: number;
 }
 interface AtlasOverlayBridge {
   status(): Promise<OverlayStatus>;
   requestPermission(): Promise<OverlayStatus>;
   start(options: { token: string }): Promise<OverlayStatus>;
   stop(): Promise<OverlayStatus>;
+  setOpacity(options: { opacity: number }): Promise<OverlayStatus>;
 }
 
 const plugin = registerPlugin<AtlasOverlayBridge>('AtlasOverlay');
@@ -24,4 +26,5 @@ export const atlasOverlay = {
   requestPermission: () => plugin.requestPermission(),
   start: (token: string) => plugin.start({ token }),
   stop: () => plugin.stop(),
+  setOpacity: (opacity: number) => plugin.setOpacity({ opacity }),
 };
