@@ -18,7 +18,6 @@ import {
   Film,
   FolderOpen,
   Github,
-  Globe,
   Heart,
   HelpCircle,
   Image as ImageIcon,
