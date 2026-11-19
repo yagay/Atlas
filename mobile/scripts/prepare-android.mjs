@@ -77,7 +77,7 @@ if (!manifest.includes('android:scheme="atlas"')) {
 const javaRoot = path.join(mobileDir, 'android/app/src/main/java/uk/wort/atlas');
 const overlayJavaDir = path.join(javaRoot, 'overlay');
 fs.mkdirSync(overlayJavaDir, { recursive: true });
-for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java']) {
+for (const file of ['AtlasOverlayPlugin.java', 'AtlasOverlayService.java', 'OverlaySearchClient.java', 'OverlaySourceClient.java', 'OverlaySourceLoginActivity.java', 'OverlayWebPanel.java']) {
   fs.copyFileSync(path.join(mobileDir, 'native-overlay', file), path.join(overlayJavaDir, file));
 }
 const mainActivityFile = path.join(javaRoot, 'MainActivity.java');
